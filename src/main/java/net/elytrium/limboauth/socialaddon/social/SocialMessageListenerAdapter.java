@@ -19,5 +19,5 @@ package net.elytrium.limboauth.socialaddon.social;
 
 public interface SocialMessageListenerAdapter {
 
-  void accept(String dbField, Long id, String content) throws Exception;
+  void accept(Long id, String content) throws Exception;
 }

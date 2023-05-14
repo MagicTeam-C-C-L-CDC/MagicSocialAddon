@@ -123,3 +123,5 @@ sourceSets.main.getJava().srcDir(getTasks().register("generateTemplates", Copy) 
 })
 
 assemble.dependsOn(shadowJar)
+sourceCompatibility = JavaVersion.VERSION_16
+targetCompatibility = JavaVersion.VERSION_16

@@ -23,15 +23,15 @@ import net.elytrium.limboapi.api.player.LimboPlayer;
 import net.elytrium.limboauth.Settings;
 import net.elytrium.limboauth.event.TaskEvent;
 import net.elytrium.limboauth.socialaddon.listener.LimboAuthListener;
-import net.elytrium.limboauth.socialaddon.model.SocialPlayer;
+import net.elytrium.limboauth.socialaddon.model.Player;
 
 public class PreLoginLimboSessionHandler implements LimboSessionHandler {
 
   private final LimboAuthListener listener;
   private final TaskEvent event;
-  private final SocialPlayer player;
+  private final Player player;
 
-  public PreLoginLimboSessionHandler(LimboAuthListener listener, TaskEvent event, SocialPlayer player) {
+  public PreLoginLimboSessionHandler(LimboAuthListener listener, TaskEvent event, Player player) {
     this.listener = listener;
     this.event = event;
     this.player = player;

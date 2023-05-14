@@ -18,5 +18,5 @@
 package net.elytrium.limboauth.socialaddon.social;
 
 public interface SocialButtonListener {
-  void accept(String dbField, Long id, String buttonId);
+  void accept(Long id, String buttonId);
 }

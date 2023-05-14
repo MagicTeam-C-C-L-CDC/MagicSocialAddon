@@ -38,17 +38,21 @@ import net.dv8tion.jda.api.interactions.components.buttons.ButtonStyle;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.cache.CacheFlag;
 import net.elytrium.limboauth.socialaddon.Settings;
-import net.elytrium.limboauth.socialaddon.model.SocialPlayer;
+import net.elytrium.limboauth.socialaddon.model.Player;
 import org.jetbrains.annotations.NotNull;
 
-public class DiscordSocial extends AbstractSocial {
+public class DiscordSocial{
 
   private JDA jda;
   private List<RoleAction> onPlayerAddedRoleActions;
   private List<RoleAction> onPlayerRemovedRoleActions;
 
+  private final SocialMessageListener onMessageReceived;
+  private final SocialButtonListener onButtonClicked;
+
   public DiscordSocial(SocialMessageListener onMessageReceived, SocialButtonListener onButtonClicked) {
-    super(onMessageReceived, onButtonClicked);
+    this.onMessageReceived = onMessageReceived;
+    this.onButtonClicked = onButtonClicked;
   }
 
   public void start() throws SocialInitializationException {
@@ -80,34 +84,35 @@ public class DiscordSocial extends AbstractSocial {
         .collect(Collectors.toList());
   }
 
-  @Override
   public boolean isEnabled() {
     return Settings.IMP.MAIN.DISCORD.ENABLED;
   }
 
-  @Override
   public void stop() {
     if (this.jda != null) {
       this.jda.shutdown();
     }
   }
 
-  @Override
   public String getDbField() {
-    return SocialPlayer.DISCORD_DB_FIELD;
+    return Player.DISCORD_DB_FIELD;
   }
 
-  @Override
   public void onPlayerAdded(Long id) {
     this.onPlayerAddedRoleActions.forEach(action -> action.doAction(id));
   }
 
-  @Override
-  public void onPlayerRemoved(SocialPlayer player) {
+  public void onPlayerRemoved(Player player) {
     this.onPlayerRemovedRoleActions.forEach(action -> action.doAction(player.getDiscordID()));
   }
+  protected void proceedMessage(Long id, String message) {
+    this.onMessageReceived.accept(id, message);
+  }
 
-  @Override
+  protected void proceedButton(Long id, String message) {
+    this.onButtonClicked.accept(id, message);
+  }
+
   public void sendMessage(Long id, String content, List<List<ButtonItem>> buttons, ButtonVisibility visibility) {
     User user = this.jda.retrieveUserById(id).complete();
     if (user == null) {
@@ -161,13 +166,11 @@ public class DiscordSocial extends AbstractSocial {
         });
   }
 
-  @Override
-  public void sendMessage(SocialPlayer player, String content, List<List<ButtonItem>> buttons, ButtonVisibility visibility) {
+  public void sendMessage(Player player, String content, List<List<ButtonItem>> buttons, ButtonVisibility visibility) {
     this.sendMessage(player.getDiscordID(), content, buttons, visibility);
   }
 
-  @Override
-  public boolean canSend(SocialPlayer player) {
+  public boolean canSend(Player player) {
     return player.getDiscordID() != null;
   }
 
@@ -198,7 +201,6 @@ public class DiscordSocial extends AbstractSocial {
       this.onButtonClicked = onButtonClicked;
     }
 
-    @Override
     public void onMessageReceived(@NotNull MessageReceivedEvent event) {
       User user = event.getAuthor();
       if (user.getIdLong() == event.getJDA().getSelfUser().getIdLong()) {
@@ -215,13 +217,12 @@ public class DiscordSocial extends AbstractSocial {
         }
       }
 
-      this.onMessageReceived.accept(SocialPlayer.DISCORD_DB_FIELD, event.getAuthor().getIdLong(), event.getMessage().getContentRaw());
+      this.onMessageReceived.accept(event.getAuthor().getIdLong(), event.getMessage().getContentRaw());
     }
 
-    @Override
     public void onButtonInteraction(@NotNull ButtonInteractionEvent event) {
       event.deferEdit().queue();
-      this.onButtonClicked.accept(SocialPlayer.DISCORD_DB_FIELD, event.getUser().getIdLong(), event.getButton().getId());
+      this.onButtonClicked.accept(event.getUser().getIdLong(), event.getButton().getId());
     }
 
   }
@@ -261,5 +262,46 @@ public class DiscordSocial extends AbstractSocial {
     public void doAction(Role role, long userId) {
       this.doAction.accept(role, userId);
     }
+  }
+  public enum ButtonVisibility {
+
+    DEFAULT,
+    PREFER_INLINE,
+    PREFER_KEYBOARD
+  }
+
+  public static class ButtonItem {
+
+    private final String id;
+    private final String value;
+    private final Color color;
+
+    public ButtonItem(String id, String value, Color color) {
+      this.id = id;
+      this.value = value;
+      this.color = color;
+    }
+
+    public String getId() {
+      return this.id;
+    }
+
+    public String getValue() {
+      return this.value;
+    }
+
+    public Color getColor() {
+      return this.color;
+    }
+
+    public enum Color {
+
+      GREEN,
+      RED,
+      PRIMARY,
+      SECONDARY,
+      LINK
+    }
+
   }
 }

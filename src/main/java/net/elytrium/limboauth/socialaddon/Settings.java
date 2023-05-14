@@ -47,7 +47,6 @@ public class Settings extends YamlConfig {
   public static class MAIN {
 
     public List<String> SOCIAL_REGISTER_CMDS = List.of("!account register");
-    public List<String> SOCIAL_LINK_CMDS = List.of("!account link");
     public List<String> FORCE_KEYBOARD_CMDS = List.of("!keyboard");
 
     public int CODE_LOWER_BOUND = 1000000;

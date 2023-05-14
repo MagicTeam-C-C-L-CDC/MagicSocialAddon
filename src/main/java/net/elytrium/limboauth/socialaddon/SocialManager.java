@@ -17,47 +17,35 @@
 
 package net.elytrium.limboauth.socialaddon;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
-import net.elytrium.limboauth.socialaddon.model.SocialPlayer;
-import net.elytrium.limboauth.socialaddon.social.AbstractSocial;
-import net.elytrium.limboauth.socialaddon.social.SocialButtonListenerAdapter;
-import net.elytrium.limboauth.socialaddon.social.SocialInitializationException;
-import net.elytrium.limboauth.socialaddon.social.SocialMessageListenerAdapter;
+import net.elytrium.limboauth.socialaddon.model.Player;
+import net.elytrium.limboauth.socialaddon.social.*;
 
 public class SocialManager {
 
-  private final LinkedList<AbstractSocial> socialList;
+  private final DiscordSocial discordSocial;
   private final LinkedList<SocialMessageListenerAdapter> messageEvents = new LinkedList<>();
   private final HashMap<String, SocialButtonListenerAdapter> buttonEvents = new HashMap<>();
   private final HashMap<String, String> buttonIdMap = new HashMap<>();
 
-  public SocialManager(AbstractSocial.Constructor... socialList) {
-    this.socialList = new LinkedList<>();
-    for (AbstractSocial.Constructor function : socialList) {
-      try {
-        AbstractSocial social = function.newInstance(this::onMessageReceived, this::onButtonClicked);
-        if (social.isEnabled()) {
-          this.socialList.add(social);
-        }
-      } catch (SocialInitializationException e) {
-        e.printStackTrace(); // printStackTrace is necessary there
-      }
-    }
+  public SocialManager() {
+    discordSocial = new DiscordSocial(this::onMessageReceived, this::onButtonClicked);
   }
 
-  private void onMessageReceived(String dbField, Long id, String message) {
+  private void onMessageReceived(Long id, String message) {
     String buttonId = this.buttonIdMap.get(message);
     if (buttonId != null) {
-      this.onButtonClicked(dbField, id, buttonId);
+      this.onButtonClicked(id, buttonId);
     }
 
     this.messageEvents.forEach(event -> {
       try {
-        event.accept(dbField, id, message);
+        event.accept(id, message);
       } catch (Exception e) {
-        this.broadcastMessage(dbField, id, Settings.IMP.MAIN.STRINGS.SOCIAL_EXCEPTION_CAUGHT);
+        this.broadcastMessage(id, Settings.IMP.MAIN.STRINGS.SOCIAL_EXCEPTION_CAUGHT);
         if (Settings.IMP.MAIN.DEBUG) {
           e.printStackTrace(); // printStackTrace is necessary there
         }
@@ -65,13 +53,13 @@ public class SocialManager {
     });
   }
 
-  private void onButtonClicked(String dbField, Long id, String buttonId) {
+  private void onButtonClicked(Long id, String buttonId) {
     SocialButtonListenerAdapter buttonListenerAdapter = this.buttonEvents.get(buttonId);
     if (buttonListenerAdapter != null) {
       try {
-        buttonListenerAdapter.accept(dbField, id);
+        buttonListenerAdapter.accept(id);
       } catch (Exception e) {
-        this.broadcastMessage(dbField, id, Settings.IMP.MAIN.STRINGS.SOCIAL_EXCEPTION_CAUGHT);
+        this.broadcastMessage(id, Settings.IMP.MAIN.STRINGS.SOCIAL_EXCEPTION_CAUGHT);
         if (Settings.IMP.MAIN.DEBUG) {
           e.printStackTrace(); // printStackTrace is necessary there
         }
@@ -92,82 +80,59 @@ public class SocialManager {
   }
 
   public void start() {
-    for (AbstractSocial social : this.socialList) {
-      try {
-        social.start();
-      } catch (SocialInitializationException e) {
-        e.printStackTrace(); // printStackTrace is necessary there
-      }
+    try {
+      discordSocial.start();
+    } catch (SocialInitializationException e) {
+      e.printStackTrace(); // printStackTrace is necessary there
     }
   }
 
   public void stop() {
-    this.socialList.forEach(AbstractSocial::stop);
+    discordSocial.stop();
   }
 
-  public void unregisterHook(SocialPlayer player) {
-    this.socialList.stream()
-        .filter(e -> e.canSend(player))
-        .forEach(e -> e.onPlayerRemoved(player));
+  public void unregisterHook(Player player) {
+    discordSocial.onPlayerRemoved(player);
   }
 
-  public void unregisterHook(String dbField, SocialPlayer player) {
-    this.socialList.stream()
-        .filter(e -> e.canSend(player))
-        .filter(e -> e.getDbField().equals(dbField))
-        .forEach(e -> e.onPlayerRemoved(player));
+  public void unregisterHook(String dbField, Player player) {
+    if(discordSocial.getDbField().equals(dbField))
+      discordSocial.onPlayerRemoved(player);
   }
 
-  public void registerHook(String dbField, Long id) {
-    this.socialList.stream()
-        .filter(e -> e.getDbField().equals(dbField))
-        .forEach(e -> e.onPlayerAdded(id));
+  public void registerHook(Long id) {
+    discordSocial.onPlayerAdded(id);
   }
 
-  public void registerKeyboard(List<List<AbstractSocial.ButtonItem>> keyboard) {
-    for (List<AbstractSocial.ButtonItem> items : keyboard) {
-      for (AbstractSocial.ButtonItem item : items) {
+  public void registerKeyboard(List<List<DiscordSocial.ButtonItem>> keyboard) {
+    for (List<DiscordSocial.ButtonItem> items : keyboard)
+      for (DiscordSocial.ButtonItem item : items)
         this.buttonIdMap.put(item.getValue(), item.getId());
-      }
-    }
   }
 
-  public void registerButton(AbstractSocial.ButtonItem item) {
+  public void registerButton(DiscordSocial.ButtonItem item) {
     this.buttonIdMap.put(item.getValue(), item.getId());
   }
 
-  public void broadcastMessage(SocialPlayer player, String message, List<List<AbstractSocial.ButtonItem>> item) {
-    this.broadcastMessage(player, message, item, AbstractSocial.ButtonVisibility.DEFAULT);
+  public void broadcastMessage(Player player, String message, List<List<DiscordSocial.ButtonItem>> item) {
+    this.broadcastMessage(player, message, item, DiscordSocial.ButtonVisibility.DEFAULT);
   }
 
-  public void broadcastMessage(SocialPlayer player, String message,
-                               List<List<AbstractSocial.ButtonItem>> item, AbstractSocial.ButtonVisibility visibility) {
-    this.socialList.stream()
-        .filter(e -> e.canSend(player))
-        .forEach(e -> e.sendMessage(player, message, item, visibility));
+  public void broadcastMessage(Player player, String message,
+                               List<List<DiscordSocial.ButtonItem>> item, DiscordSocial.ButtonVisibility visibility) {
+    discordSocial.sendMessage(player, message, item, visibility);
   }
 
-  public void broadcastMessage(SocialPlayer player, String message) {
-    this.socialList.stream()
-        .filter(e -> e.canSend(player))
-        .forEach(e -> e.sendMessage(player, message));
+  public void broadcastMessage(Long id, String message,
+                                  List<List<DiscordSocial.ButtonItem>> item) {
+    discordSocial.sendMessage(id, message, item, DiscordSocial.ButtonVisibility.DEFAULT);
   }
 
-  public void broadcastMessage(String dbField, Long id, String message, List<List<AbstractSocial.ButtonItem>> item) {
-    this.broadcastMessage(dbField, id, message, item, AbstractSocial.ButtonVisibility.DEFAULT);
+  public void broadcastMessage(Player player, String message) {
+    discordSocial.sendMessage(player, message, Collections.emptyList(), DiscordSocial.ButtonVisibility.DEFAULT);
   }
 
-
-  public void broadcastMessage(String dbField, Long id, String message,
-                               List<List<AbstractSocial.ButtonItem>> item, AbstractSocial.ButtonVisibility visibility) {
-    this.socialList.stream()
-        .filter(e -> e.getDbField().equals(dbField))
-        .forEach(e -> e.sendMessage(id, message, item, visibility));
-  }
-
-  public void broadcastMessage(String dbField, Long id, String message) {
-    this.socialList.stream()
-        .filter(e -> e.getDbField().equals(dbField))
-        .forEach(e -> e.sendMessage(id, message));
+  public void broadcastMessage(Long id, String message) {
+   discordSocial.sendMessage(id, message, Collections.emptyList(), DiscordSocial.ButtonVisibility.DEFAULT);
   }
 }
