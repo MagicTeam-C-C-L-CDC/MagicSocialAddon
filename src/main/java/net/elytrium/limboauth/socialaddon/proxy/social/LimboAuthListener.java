@@ -15,7 +15,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package net.elytrium.limboauth.socialaddon.listener;
+package net.elytrium.limboauth.socialaddon.proxy.social;
 
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
@@ -26,13 +26,13 @@ import net.elytrium.limboauth.LimboAuth;
 import net.elytrium.limboauth.event.*;
 import net.elytrium.limboauth.socialaddon.Addon;
 import net.elytrium.limboauth.socialaddon.Settings;
-import net.elytrium.limboauth.socialaddon.SocialManager;
-import net.elytrium.limboauth.socialaddon.handler.PreLoginLimboSessionHandler;
+import net.elytrium.limboauth.socialaddon.bot.DiscordSocial;
+import net.elytrium.limboauth.socialaddon.proxy.SocialManager;
+import net.elytrium.limboauth.socialaddon.proxy.handler.PreLoginLimboSessionHandler;
 import net.elytrium.limboauth.socialaddon.model.Ban;
 import net.elytrium.limboauth.socialaddon.model.DataManager;
 import net.elytrium.limboauth.socialaddon.model.Player;
-import net.elytrium.limboauth.socialaddon.social.DiscordSocial;
-import net.elytrium.limboauth.socialaddon.utils.GeoIp;
+import net.elytrium.limboauth.socialaddon.proxy.utils.GeoIp;
 import net.kyori.adventure.text.Component;
 
 import java.sql.SQLException;
@@ -52,7 +52,6 @@ public class LimboAuthListener {
   private final Component unregistered = Addon.getSerializer().deserialize(Settings.IMP.MAIN.STRINGS.REGISTER_INCORRECT_NICKNAME);
   private final Component askedKick = Addon.getSerializer().deserialize(Settings.IMP.MAIN.STRINGS.NOTIFY_ASK_KICK_MESSAGE);
   private final Component askedValidate = Addon.getSerializer().deserialize(Settings.IMP.MAIN.STRINGS.NOTIFY_ASK_VALIDATE_GAME);
-  private final Component linkAnnouncement;
 
   private final Addon addon;
   private final LimboAuth plugin;
@@ -74,22 +73,13 @@ public class LimboAuthListener {
     this.socialManager = socialManager;
     this.keyboard = keyboard;
     this.geoIp = geoIp;
-    if (Settings.IMP.MAIN.REVERSE_YES_NO_BUTTONS) {
-      this.yesNoButtons = List.of(
-          List.of(
-              new DiscordSocial.ButtonItem(ASK_YES_BTN, Settings.IMP.MAIN.STRINGS.NOTIFY_ASK_YES, DiscordSocial.ButtonItem.Color.GREEN),
-              new DiscordSocial.ButtonItem(ASK_NO_BTN, Settings.IMP.MAIN.STRINGS.NOTIFY_ASK_NO, DiscordSocial.ButtonItem.Color.RED)
-          )
-      );
-    } else {
-      this.yesNoButtons = List.of(
-          List.of(
-              new DiscordSocial.ButtonItem(ASK_NO_BTN, Settings.IMP.MAIN.STRINGS.NOTIFY_ASK_NO, DiscordSocial.ButtonItem.Color.RED),
-              new DiscordSocial.ButtonItem(ASK_YES_BTN, Settings.IMP.MAIN.STRINGS.NOTIFY_ASK_YES, DiscordSocial.ButtonItem.Color.GREEN)
-          )
-      );
-    }
 
+    this.yesNoButtons = List.of(
+            List.of(
+                    new DiscordSocial.ButtonItem(ASK_NO_BTN, Settings.IMP.MAIN.STRINGS.NOTIFY_ASK_NO, DiscordSocial.ButtonItem.Color.RED),
+                    new DiscordSocial.ButtonItem(ASK_YES_BTN, Settings.IMP.MAIN.STRINGS.NOTIFY_ASK_YES, DiscordSocial.ButtonItem.Color.GREEN)
+            )
+    );
     this.socialManager.registerKeyboard(this.yesNoButtons);
     this.socialManager.removeButtonEvent(ASK_NO_BTN);
     this.socialManager.removeButtonEvent(ASK_YES_BTN);
@@ -121,12 +111,6 @@ public class LimboAuthListener {
         this.socialManager.broadcastMessage(player, Settings.IMP.MAIN.STRINGS.NOTIFY_THANKS, this.keyboard);
       }
     });
-
-    if (Settings.IMP.MAIN.STRINGS.LINK_ANNOUNCEMENT == null || Settings.IMP.MAIN.STRINGS.LINK_ANNOUNCEMENT.isEmpty()) {
-      this.linkAnnouncement = null;
-    } else {
-      this.linkAnnouncement = Addon.getSerializer().deserialize(Settings.IMP.MAIN.STRINGS.LINK_ANNOUNCEMENT);
-    }
   }
 
   @Subscribe
@@ -173,9 +157,6 @@ public class LimboAuthListener {
       }
     }
 
-    if (!this.playerExists(proxyPlayer) && this.linkAnnouncement != null) {
-      proxyPlayer.sendMessage(this.linkAnnouncement);
-    }
   }
 
   public void authMainHook(Player player, LimboPlayer limboPlayer, TaskEvent event) {
@@ -192,11 +173,7 @@ public class LimboAuthListener {
 
   @Subscribe
   public void onRegisterCompleted(PostRegisterEvent event) {
-    if (this.linkAnnouncement != null) {
-      event.getPlayer()
-          .getProxyPlayer()
-          .sendMessage(this.linkAnnouncement);
-    }
+
   }
 
   @Subscribe

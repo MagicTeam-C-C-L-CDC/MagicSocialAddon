@@ -15,14 +15,22 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package net.elytrium.limboauth.socialaddon;
+package net.elytrium.limboauth.socialaddon.proxy;
+
+import net.elytrium.commons.config.Placeholders;
+import net.elytrium.limboauth.model.RegisteredPlayer;
+import net.elytrium.limboauth.socialaddon.Addon;
+import net.elytrium.limboauth.socialaddon.Settings;
+import net.elytrium.limboauth.socialaddon.model.Player;
+import net.elytrium.limboauth.socialaddon.bot.DiscordSocial;
+import net.elytrium.limboauth.socialaddon.proxy.social.SocialButtonListenerAdapter;
+import net.elytrium.limboauth.socialaddon.proxy.social.SocialInitializationException;
+import net.elytrium.limboauth.socialaddon.proxy.social.SocialMessageListenerAdapter;
 
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
-import net.elytrium.limboauth.socialaddon.model.Player;
-import net.elytrium.limboauth.socialaddon.social.*;
 
 public class SocialManager {
 
@@ -31,8 +39,12 @@ public class SocialManager {
   private final HashMap<String, SocialButtonListenerAdapter> buttonEvents = new HashMap<>();
   private final HashMap<String, String> buttonIdMap = new HashMap<>();
 
+
   public SocialManager() {
     discordSocial = new DiscordSocial(this::onMessageReceived, this::onButtonClicked);
+    addMessageEvent((dbField, id, message) -> {
+
+    });
   }
 
   private void onMessageReceived(Long id, String message) {
@@ -134,5 +146,57 @@ public class SocialManager {
 
   public void broadcastMessage(Long id, String message) {
    discordSocial.sendMessage(id, message, Collections.emptyList(), DiscordSocial.ButtonVisibility.DEFAULT);
+  }
+
+  public void createPlayer(SocialMessageListenerAdapter event){
+    if (lowercaseMessage.startsWith(socialRegisterCmd)) {
+      int desiredLength = socialRegisterCmd.length() + 1;
+
+      if (message.length() <= desiredLength) {
+        this.socialManager.broadcastMessage(id_, Settings.IMP.MAIN.STRINGS.LINK_SOCIAL_REGISTER_CMD_USAGE);
+        return;
+      }
+
+      String[] info = message.substring(desiredLength).split(" ");
+      String account = info[0];
+      Long discord_id = Long.getLong(info[1]);
+
+      Addon.CachedRegisteredUser cachedRegisteredUser = this.cachedAccountRegistrations.get(discord_id);
+      if (cachedRegisteredUser == null) {
+        this.cachedAccountRegistrations.put(discord_id, cachedRegisteredUser = new Addon.CachedRegisteredUser());
+      }
+
+      if (cachedRegisteredUser.getRegistrationAmount() >= Settings.IMP.MAIN.MAX_REGISTRATION_COUNT_PER_TIME) {
+        this.socialManager.broadcastMessage(discord_id, Settings.IMP.MAIN.STRINGS.REGISTER_LIMIT);
+        return;
+      }
+
+      cachedRegisteredUser.incrementRegistrationAmount();
+
+      if (this.dataManager.players().idExists("" + discord_id)) {
+        this.socialManager.broadcastMessage(discord_id, Settings.IMP.MAIN.STRINGS.LINK_ALREADY);
+        return;
+      }
+
+      if (!this.nicknamePattern.matcher(account).matches()) {
+        this.socialManager.broadcastMessage(discord_id, Settings.IMP.MAIN.STRINGS.REGISTER_INCORRECT_NICKNAME);
+        return;
+      }
+
+      if (this.plugin.getPlayerDao().idExists(account)) {
+        this.socialManager.broadcastMessage(discord_id, Settings.IMP.MAIN.STRINGS.REGISTER_TAKEN_NICKNAME);
+        return;
+      }
+
+
+      String newPassword = Long.toHexString(Double.doubleToLongBits(Math.random()));
+
+      RegisteredPlayer player = new RegisteredPlayer(account, "", "").setPassword(newPassword);
+      this.plugin.getPlayerDao().create(player);
+
+      this.linkSocial(account, discord_id);
+      this.socialManager.broadcastMessage(discord_id,
+              Placeholders.replace(Settings.IMP.MAIN.STRINGS.REGISTER_SUCCESS, newPassword));
+    }
   }
 }

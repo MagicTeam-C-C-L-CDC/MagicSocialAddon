@@ -37,13 +37,13 @@ import net.elytrium.commons.kyori.serialization.Serializer;
 import net.elytrium.commons.kyori.serialization.Serializers;
 import net.elytrium.commons.utils.updates.UpdatesChecker;
 import net.elytrium.limboauth.LimboAuth;
-import net.elytrium.limboauth.model.RegisteredPlayer;
-import net.elytrium.limboauth.socialaddon.command.ForceSocialUnlinkCommand;
-import net.elytrium.limboauth.socialaddon.listener.LimboAuthListener;
-import net.elytrium.limboauth.socialaddon.listener.ReloadListener;
+import net.elytrium.limboauth.socialaddon.bot.DiscordCommandListener;
+import net.elytrium.limboauth.socialaddon.proxy.social.LimboAuthListener;
+import net.elytrium.limboauth.socialaddon.proxy.social.ReloadListener;
 import net.elytrium.limboauth.socialaddon.model.*;
-import net.elytrium.limboauth.socialaddon.social.DiscordSocial;
-import net.elytrium.limboauth.socialaddon.utils.GeoIp;
+import net.elytrium.limboauth.socialaddon.proxy.SocialManager;
+import net.elytrium.limboauth.socialaddon.bot.DiscordSocial;
+import net.elytrium.limboauth.socialaddon.proxy.utils.GeoIp;
 import net.elytrium.limboauth.thirdparty.com.j256.ormlite.dao.DaoManager;
 import net.elytrium.limboauth.thirdparty.com.j256.ormlite.stmt.UpdateBuilder;
 import net.elytrium.limboauth.thirdparty.com.j256.ormlite.support.ConnectionSource;
@@ -93,12 +93,15 @@ public class Addon {
   private final Map<Long, CachedRegisteredUser> cachedAccountRegistrations = new ConcurrentHashMap<>();
 
   private DataManager dataManager;
-  private Pattern nicknamePattern;
-
   private SocialManager socialManager;
+  private DiscordCommandListener discordManager;
+
+  private Pattern nicknamePattern;
   private List<List<DiscordSocial.ButtonItem>> keyboard;
   private GeoIp geoIp;
   private ScheduledTask purgeCacheTask;
+
+
 
   static {
     Objects.requireNonNull(org.apache.commons.logging.impl.LogFactoryImpl.class);
@@ -173,82 +176,6 @@ public class Addon {
     );
 
     this.socialManager.registerKeyboard(this.keyboard);
-
-    this.socialManager.addMessageEvent((id_, message) -> {
-      String lowercaseMessage = message.toLowerCase(Locale.ROOT);
-      if (Settings.IMP.MAIN.START_MESSAGES.contains(lowercaseMessage)) {
-        this.socialManager.broadcastMessage(id_, Settings.IMP.MAIN.START_REPLY);
-        return;
-      }
-
-      for (String socialRegisterCmd : Settings.IMP.MAIN.SOCIAL_REGISTER_CMDS) {
-        if (lowercaseMessage.startsWith(socialRegisterCmd)) {
-          int desiredLength = socialRegisterCmd.length() + 1;
-
-          if (message.length() <= desiredLength) {
-            this.socialManager.broadcastMessage(id_, Settings.IMP.MAIN.STRINGS.LINK_SOCIAL_REGISTER_CMD_USAGE);
-            return;
-          }
-
-          String[] info = message.substring(desiredLength).split(" ");
-          String account = info[0];
-          Long discord_id = Long.getLong(info[1]);
-
-          CachedRegisteredUser cachedRegisteredUser = this.cachedAccountRegistrations.get(discord_id);
-          if (cachedRegisteredUser == null) {
-            this.cachedAccountRegistrations.put(discord_id, cachedRegisteredUser = new CachedRegisteredUser());
-          }
-
-          if (cachedRegisteredUser.getRegistrationAmount() >= Settings.IMP.MAIN.MAX_REGISTRATION_COUNT_PER_TIME) {
-            this.socialManager.broadcastMessage(discord_id, Settings.IMP.MAIN.STRINGS.REGISTER_LIMIT);
-            return;
-          }
-
-          cachedRegisteredUser.incrementRegistrationAmount();
-
-          if (this.dataManager.players().idExists("" + discord_id)) {
-            this.socialManager.broadcastMessage(discord_id, Settings.IMP.MAIN.STRINGS.LINK_ALREADY);
-            return;
-          }
-
-          if (!this.nicknamePattern.matcher(account).matches()) {
-            this.socialManager.broadcastMessage(discord_id, Settings.IMP.MAIN.STRINGS.REGISTER_INCORRECT_NICKNAME);
-            return;
-          }
-
-          if (this.plugin.getPlayerDao().idExists(account)) {
-            this.socialManager.broadcastMessage(discord_id, Settings.IMP.MAIN.STRINGS.REGISTER_TAKEN_NICKNAME);
-            return;
-          }
-
-          if (!Settings.IMP.MAIN.ALLOW_PREMIUM_NAMES_REGISTRATION && this.plugin.isPremium(account)) {
-            this.socialManager.broadcastMessage(discord_id, Settings.IMP.MAIN.STRINGS.REGISTER_PREMIUM_NICKNAME);
-            return;
-          }
-
-          String newPassword = Long.toHexString(Double.doubleToLongBits(Math.random()));
-
-          RegisteredPlayer player = new RegisteredPlayer(account, "", "").setPassword(newPassword);
-          this.plugin.getPlayerDao().create(player);
-
-          this.linkSocial(account, discord_id);
-          this.socialManager.broadcastMessage(discord_id,
-              Placeholders.replace(Settings.IMP.MAIN.STRINGS.REGISTER_SUCCESS, newPassword));
-        }
-      }
-
-      for (String forceKeyboardCmd : Settings.IMP.MAIN.FORCE_KEYBOARD_CMDS) {
-        if (lowercaseMessage.startsWith(forceKeyboardCmd)) {
-          if (this.dataManager.players().queryBuilder().where().eq(Player.DISCORD_DB_FIELD, id_).countOf() == 0) {
-            this.socialManager.broadcastMessage(id_, Settings.IMP.MAIN.START_REPLY);
-            return;
-          }
-
-          this.socialManager.broadcastMessage(id_, Settings.IMP.MAIN.STRINGS.KEYBOARD_RESTORED, this.keyboard);
-          return;
-        }
-      }
-    });
 
     this.socialManager.addButtonEvent(INFO_BTN, (id) -> {
       List<Player> playerList = this.dataManager.players().queryForEq(Player.DISCORD_DB_FIELD, id);
@@ -339,6 +266,9 @@ public class Addon {
 
       this.dataManager.players().update(player);
     });
+
+
+    this.discordManager = new DiscordCommandListener(socialManager, dataManager);
   }
 
   public void onReload() throws SQLException {
@@ -347,16 +277,19 @@ public class Addon {
 
     ConnectionSource source = this.plugin.getConnectionSource();
     TableUtils.createTableIfNotExists(source, Player.class);
+    TableUtils.createTableIfNotExists(source, Activity.class);
+    TableUtils.createTableIfNotExists(source, Ban.class);
+    TableUtils.createTableIfNotExists(source, History.class);
     this.dataManager = new DataManager(
+            socialManager,
+            server,
             DaoManager.createDao(source, Player.class),
             DaoManager.createDao(source, Activity.class),
             DaoManager.createDao(source, Ban.class),
             DaoManager.createDao(source, History.class)
     );
 
-    this.plugin.migrateDb(this.dataManager.players());
-
-    this.nicknamePattern = Pattern.compile(net.elytrium.limboauth.Settings.IMP.MAIN.ALLOWED_NICKNAME_REGEX);
+    //this.plugin.migrateDb(this.dataManager.players());
 
     this.server.getEventManager().register(this, new LimboAuthListener(this, this.plugin, this.dataManager, this.socialManager,
         this.keyboard, this.geoIp
@@ -374,13 +307,6 @@ public class Addon {
         .schedule();
 
     CommandManager commandManager = this.server.getCommandManager();
-    commandManager.unregister(Settings.IMP.MAIN.FORCE_UNLINK_MAIN_CMD);
-
-    commandManager.register(
-        Settings.IMP.MAIN.FORCE_UNLINK_MAIN_CMD,
-        new ForceSocialUnlinkCommand(this),
-        Settings.IMP.MAIN.FORCE_UNLINK_ALIAS_CMD.toArray(new String[0])
-    );
   }
 
   private void checkCache(Map<?, ? extends CachedUser> userMap, long time) {
@@ -413,7 +339,7 @@ public class Addon {
           this.server.getCommandManager().executeAsync(p -> Tristate.TRUE, command.replace("{NICKNAME}", lowercaseNickname)));
 
       this.dataManager.players().create(new Player(lowercaseNickname));
-    } else if (!Settings.IMP.MAIN.ALLOW_ACCOUNT_RELINK && player.getDiscordID() != null) {
+    } else if (player.getDiscordID() != null) {
       this.socialManager.broadcastMessage(id, Settings.IMP.MAIN.STRINGS.LINK_ALREADY);
       return;
     }

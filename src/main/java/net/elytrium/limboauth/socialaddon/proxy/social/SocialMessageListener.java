@@ -15,7 +15,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package net.elytrium.limboauth.socialaddon.social;
+package net.elytrium.limboauth.socialaddon.proxy.social;
 
 public interface SocialMessageListener {
 

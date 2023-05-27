@@ -47,9 +47,7 @@ dependencies {
     compileOnly("com.velocitypowered:velocity-api:$velocityVersion")
     annotationProcessor("com.velocitypowered:velocity-api:$velocityVersion")
 
-    implementation("net.dv8tion:JDA:$jdaVersion") {
-        exclude module: "opus-java"
-    }
+    implementation("net.dv8tion:JDA:$jdaVersion")
     implementation("org.telegram:telegrambots:$telegrambotsVersion")
     implementation("com.vk.api:sdk:$vkVersion")
 

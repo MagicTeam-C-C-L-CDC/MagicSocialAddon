@@ -15,14 +15,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package net.elytrium.limboauth.socialaddon.social;
+package net.elytrium.limboauth.socialaddon.bot;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
-import javax.security.auth.login.LoginException;
+
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.Activity;
@@ -38,21 +38,29 @@ import net.dv8tion.jda.api.interactions.components.buttons.ButtonStyle;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.cache.CacheFlag;
 import net.elytrium.limboauth.socialaddon.Settings;
+import net.elytrium.limboauth.socialaddon.model.DataManager;
 import net.elytrium.limboauth.socialaddon.model.Player;
+import net.elytrium.limboauth.socialaddon.proxy.social.SocialButtonListener;
+import net.elytrium.limboauth.socialaddon.proxy.social.SocialInitializationException;
+import net.elytrium.limboauth.socialaddon.proxy.social.SocialMessageListener;
 import org.jetbrains.annotations.NotNull;
 
-public class DiscordSocial{
+public class DiscordSocial {
 
   private JDA jda;
+  private  DiscordCommandListener commandListener;
   private List<RoleAction> onPlayerAddedRoleActions;
   private List<RoleAction> onPlayerRemovedRoleActions;
 
   private final SocialMessageListener onMessageReceived;
   private final SocialButtonListener onButtonClicked;
 
-  public DiscordSocial(SocialMessageListener onMessageReceived, SocialButtonListener onButtonClicked) {
+  public DiscordSocial(DataManager dataManager, SocialMessageListener onMessageReceived, SocialButtonListener onButtonClicked) {
     this.onMessageReceived = onMessageReceived;
     this.onButtonClicked = onButtonClicked;
+    this.commandListener = new DiscordCommandListener(dataManager);
+    jda.updateCommands().addCommands(commandListener.build()).queue();
+    jda.addEventListener(commandListener);
   }
 
   public void start() throws SocialInitializationException {
@@ -64,12 +72,12 @@ public class DiscordSocial{
         jdaBuilder = JDABuilder.create(Settings.IMP.MAIN.DISCORD.TOKEN, GatewayIntent.DIRECT_MESSAGES);
       }
 
-      this.jda = jdaBuilder.disableCache(CacheFlag.ACTIVITY, CacheFlag.VOICE_STATE, CacheFlag.EMOTE, CacheFlag.CLIENT_STATUS, CacheFlag.ONLINE_STATUS)
+      this.jda = jdaBuilder.disableCache(CacheFlag.ACTIVITY, CacheFlag.VOICE_STATE, CacheFlag.EMOJI, CacheFlag.CLIENT_STATUS, CacheFlag.ONLINE_STATUS)
           .setActivity(Settings.IMP.MAIN.DISCORD.ACTIVITY_ENABLED
               ? Activity.of(Settings.IMP.MAIN.DISCORD.ACTIVITY_TYPE, Settings.IMP.MAIN.DISCORD.ACTIVITY_NAME, Settings.IMP.MAIN.DISCORD.ACTIVITY_URL)
               : null)
           .build().awaitReady();
-    } catch (LoginException | InterruptedException e) {
+    } catch (InterruptedException e) {
       throw new SocialInitializationException(e);
     }
 
@@ -150,7 +158,7 @@ public class DiscordSocial{
         .submit()
         .thenAccept(privateChannel -> privateChannel
             .sendMessage(content)
-            .setActionRows(actionRowList)
+            .setComponents(actionRowList)
             .submit()
             .exceptionally(e -> {
               if (Settings.IMP.MAIN.DEBUG) {
@@ -173,6 +181,8 @@ public class DiscordSocial{
   public boolean canSend(Player player) {
     return player.getDiscordID() != null;
   }
+
+
 
   private static class Listener extends ListenerAdapter {
 
@@ -225,6 +235,8 @@ public class DiscordSocial{
       this.onButtonClicked.accept(event.getUser().getIdLong(), event.getButton().getId());
     }
 
+
+
   }
 
   private final class RoleAction {
@@ -250,8 +262,8 @@ public class DiscordSocial{
   }
 
   private enum RoleActionType {
-    ADDROLE((role, id) -> role.getGuild().addRoleToMember(id, role).queue()),
-    REMROLE((role, id) -> role.getGuild().removeRoleFromMember(id, role).queue());
+    ADDROLE((role, id) -> role.getGuild().addRoleToMember(User.fromId(id), role).queue()),
+    REMROLE((role, id) -> role.getGuild().removeRoleFromMember(User.fromId(id), role).queue());
 
     private final BiConsumer<Role, Long> doAction;
 

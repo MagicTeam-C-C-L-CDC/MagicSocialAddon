@@ -15,12 +15,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package net.elytrium.limboauth.socialaddon.social;
+package net.elytrium.limboauth.socialaddon.proxy.social;
 
-public class SocialInitializationException extends Exception {
+public interface SocialMessageListenerAdapter {
 
-  public SocialInitializationException(Exception other) {
-    super(other);
-  }
-
+  void accept(Long id, String content) throws Exception;
 }

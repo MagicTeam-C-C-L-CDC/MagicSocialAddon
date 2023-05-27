@@ -15,22 +15,12 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package net.elytrium.limboauth.socialaddon.listener;
+package net.elytrium.limboauth.socialaddon.proxy.social;
 
-import com.velocitypowered.api.event.Subscribe;
-import java.sql.SQLException;
-import net.elytrium.limboauth.event.AuthPluginReloadEvent;
-import net.elytrium.limboauth.socialaddon.Addon;
+public class SocialInitializationException extends Exception {
 
-public class ReloadListener {
-  Addon addon;
-
-  public ReloadListener(Addon addon) {
-    this.addon = addon;
+  public SocialInitializationException(Exception other) {
+    super(other);
   }
 
-  @Subscribe
-  public void onAuthReload(AuthPluginReloadEvent event) throws SQLException {
-    this.addon.onReload();
-  }
 }

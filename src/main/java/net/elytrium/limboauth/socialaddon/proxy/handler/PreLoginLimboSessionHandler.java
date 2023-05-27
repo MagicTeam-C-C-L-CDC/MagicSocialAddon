@@ -15,14 +15,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package net.elytrium.limboauth.socialaddon.handler;
+package net.elytrium.limboauth.socialaddon.proxy.handler;
 
 import net.elytrium.limboapi.api.Limbo;
 import net.elytrium.limboapi.api.LimboSessionHandler;
 import net.elytrium.limboapi.api.player.LimboPlayer;
 import net.elytrium.limboauth.Settings;
 import net.elytrium.limboauth.event.TaskEvent;
-import net.elytrium.limboauth.socialaddon.listener.LimboAuthListener;
+import net.elytrium.limboauth.socialaddon.proxy.social.LimboAuthListener;
 import net.elytrium.limboauth.socialaddon.model.Player;
 
 public class PreLoginLimboSessionHandler implements LimboSessionHandler {
