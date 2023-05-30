@@ -20,27 +20,37 @@ package ru.magicteam.proxy.social.controller.proxy;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.player.PlayerChooseInitialServerEvent;
+import com.velocitypowered.api.proxy.ServerConnection;
+import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.elytrium.commons.config.Placeholders;
+import net.elytrium.limboapi.api.Limbo;
 import net.elytrium.limboapi.api.player.LimboPlayer;
 import net.elytrium.limboauth.LimboAuth;
 import net.elytrium.limboauth.event.*;
+import net.kyori.adventure.text.Component;
 import ru.magicteam.proxy.social.Addon;
 import ru.magicteam.proxy.social.Settings;
+import ru.magicteam.proxy.social.controller.discord.DType;
 import ru.magicteam.proxy.social.controller.discord.DiscordController;
+import ru.magicteam.proxy.social.controller.discord.DiscordEvent;
+import ru.magicteam.proxy.social.controller.discord.ui.button.ButtonVisibility;
+import ru.magicteam.proxy.social.controller.discord.ui.keyboard.DiscordKeyboards;
 import ru.magicteam.proxy.social.controller.proxy.handler.PreLoginLimboSessionHandler;
+import ru.magicteam.proxy.social.controller.proxy.utils.AuthSession;
+import ru.magicteam.proxy.social.controller.proxy.utils.GeoIp;
 import ru.magicteam.proxy.social.model.Ban;
-import ru.magicteam.proxy.social.model.DataModel;
 import ru.magicteam.proxy.social.model.ModelAPI;
 import ru.magicteam.proxy.social.model.Player;
-import ru.magicteam.proxy.social.controller.proxy.utils.GeoIp;
-import net.kyori.adventure.text.Component;
 
 import java.sql.SQLException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.*;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class ProxyController {
@@ -53,166 +63,255 @@ public class ProxyController {
   private final LimboAuth plugin;
   private final ModelAPI api;
   private final DiscordController discordController;
-  private final Map<String, AuthSession> sessions = new ConcurrentHashMap<>();
+  private final Map<Long, AuthSession> sessions = new ConcurrentHashMap<>();
 
   private final GeoIp geoIp;
-  private final boolean auth2faWithoutPassword = Settings.IMP.MAIN.AUTH_2FA_WITHOUT_PASSWORD;
 
   public ProxyController(LimboAuth plugin, ModelAPI api, DiscordController discordController, GeoIp geoIp) {
     this.plugin = plugin;
     this.api = api;
     this.discordController = discordController;
     this.geoIp = geoIp;
+
+    discordController.subscribe (DType.BUTTON_PLAYER_JOIN_REQUEST_NO, (e) -> {
+      if(e.type != DiscordEvent.EventType.BUTTON)
+        return;
+
+      Long id = e.id;
+      if (sessions.containsKey(id)) {
+        sessions.get(id).getEvent().completeAndCancel(this.askedKick);
+        discordController.broadcastMessage(id, Settings.IMP.MAIN.STRINGS.NOTIFY_WARN, DiscordKeyboards.infoKeyboard.build(id));
+      } else
+        ((ButtonInteractionEvent)e.event).reply(Settings.IMP.MAIN.STRINGS.SOCIAL_EXCEPTION_CAUGHT);
+    });
+
+    discordController.subscribe(DType.BUTTON_PLAYER_JOIN_REQUEST_YES, (e) -> {
+      if(e.type != DiscordEvent.EventType.BUTTON)
+        return;
+
+      Long id = e.id;
+
+      if(!sessions.containsKey(id))
+        return;
+
+      AuthSession authSession = this.sessions.get(id);
+      LimboPlayer limboPlayer = authSession.getPlayer();
+      limboPlayer.disconnect();
+      com.velocitypowered.api.proxy.Player proxyPlayer = limboPlayer.getProxyPlayer();
+      this.plugin.cacheAuthUser(proxyPlayer);
+      try {
+        this.plugin.updateLoginData(proxyPlayer);
+      } catch (SQLException ex) {
+        ex.printStackTrace();
+      }
+
+      discordController.broadcastMessage(id, Settings.IMP.MAIN.STRINGS.NOTIFY_THANKS, DiscordKeyboards.infoKeyboard.build(id));
+    });
+
+    discordController.subscribe(DType.BUTTON_PLAYER_INFO, e -> {
+      if(e.type != DiscordEvent.EventType.BUTTON)
+        return;
+
+      Optional<Player> optionalPlayer = api.queryPlayerByID(e.id);
+
+      if (optionalPlayer.isEmpty())
+        return;
+
+      Player player = optionalPlayer.get();
+      Optional<com.velocitypowered.api.proxy.Player> proxyPlayer = plugin.getServer().getPlayer(player.getNickname());
+      String server;
+      String ip;
+      String location;
+
+      if (proxyPlayer.isPresent()) {
+        com.velocitypowered.api.proxy.Player player1 = proxyPlayer.get();
+        Optional<ServerConnection> connection = player1.getCurrentServer();
+
+        if (connection.isPresent()) {
+          server = connection.get().getServerInfo().getName();
+        } else {
+          server = Settings.IMP.MAIN.STRINGS.STATUS_OFFLINE;
+        }
+
+        ip = player1.getRemoteAddress().getAddress().getHostAddress();
+        location = Optional.ofNullable(this.geoIp).map(nonNullGeo -> nonNullGeo.getLocation(ip)).orElse("");
+      } else {
+        server = Settings.IMP.MAIN.STRINGS.STATUS_OFFLINE;
+        ip = Settings.IMP.MAIN.STRINGS.STATUS_OFFLINE;
+        location = "";
+      }
+
+      discordController.broadcastMessage(player, Placeholders.replace(Settings.IMP.MAIN.STRINGS.INFO_MSG,
+                      player.getNickname(),
+                      server,
+                      ip,
+                      location,
+                      player.isNotifyEnabled()),
+              DiscordKeyboards.infoKeyboard.build(e.id)
+      );
+    });
+
+    discordController.subscribe(DType.BUTTON_PLAYER_NOTIFY, e -> {
+      if(e.type != DiscordEvent.EventType.BUTTON)
+        return;
+
+      Optional<Player> optionalPlayer = api.queryPlayerByID(e.id);
+
+      if (optionalPlayer.isEmpty())
+        return;
+
+      Player player = optionalPlayer.get();
+
+      if (player.isNotifyEnabled()) {
+        player.setNotifyEnabled(false);
+        discordController.broadcastMessage(player,
+                Placeholders.replace(Settings.IMP.MAIN.STRINGS.NOTIFY_DISABLE_SUCCESS, player.getNickname()),
+                DiscordKeyboards.infoKeyboard.build(e.id)
+        );
+      } else {
+        player.setNotifyEnabled(true);
+        discordController.broadcastMessage(player,
+                Placeholders.replace(Settings.IMP.MAIN.STRINGS.NOTIFY_ENABLE_SUCCESS, player.getNickname()),
+                DiscordKeyboards.infoKeyboard.build(e.id)
+        );
+      }
+
+
+      api.updatePlayer(player);
+    });
+
+    discordController.subscribe(DType.BUTTON_PLAYER_KICK, e -> {
+      if(e.type != DiscordEvent.EventType.BUTTON)
+        return;
+
+      Optional<Player> optionalPlayer = api.queryPlayerByID(e.id);
+
+      if (optionalPlayer.isEmpty())
+        return;
+
+      Player player = optionalPlayer.get();
+      Optional<com.velocitypowered.api.proxy.Player> proxyPlayer = plugin.getServer().getPlayer(player.getNickname());
+      this.plugin.removePlayerFromCache(player.getNickname());
+
+      if (proxyPlayer.isPresent()) {
+        proxyPlayer.get().disconnect(Addon.getSerializer().deserialize(Settings.IMP.MAIN.STRINGS.KICK_GAME_MESSAGE));
+        discordController.broadcastMessage(player,
+                Placeholders.replace(Settings.IMP.MAIN.STRINGS.KICK_SUCCESS, player.getNickname()),
+                DiscordKeyboards.infoKeyboard.build(e.id)
+        );
+      } else discordController.broadcastMessage(player,
+                Settings.IMP.MAIN.STRINGS.KICK_IS_OFFLINE.replace("{NICKNAME}", player.getNickname()),
+                DiscordKeyboards.infoKeyboard.build(e.id)
+      );
+
+      api.updatePlayer(player);
+    });
   }
 
   @Subscribe
   public void onAuth(PreAuthorizationEvent event) {
     com.velocitypowered.api.proxy.Player proxyPlayer = event.getPlayer();
-    Player player = this.queryPlayer(proxyPlayer);
-    List<Ban> banInfo = new LinkedList<>();
 
-    try {
-      banInfo.addAll(dataManager.ban().queryForEq(Ban.DISCORD_DB_FIELD, player.getDiscordID()));
-    } catch (SQLException e) {
-      throw new RuntimeException(e);
+    Optional<Player> optionalPlayer = api.queryPlayerByNickName(proxyPlayer.getUsername());
+    if(optionalPlayer.isEmpty()){
+      proxyPlayer.disconnect(unregistered);
+      return;
     }
 
-    boolean allow = banInfo.stream().map(b -> {
+    Player player = optionalPlayer.get();
+    List<Ban> banInfo = new LinkedList<>(api.queryBan(player.getDiscordID()));
+
+    /**
+     * Нужно поправить расчет бана
+     */
+    boolean deny = banInfo.stream().map(b -> {
       SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-ss dd:mm:ss");
       try {
         return dateFormat.parse(b.getExpire_timestamp()).getTime() < LocalDateTime.now().atZone(ZoneId.systemDefault()).toEpochSecond();
       } catch (ParseException e) {
         throw new RuntimeException(e);
       }
-    }).reduce((b1, b2) -> b1 && b2).orElse(true);
+    }).reduce((b1, b2) -> b1 || b2).orElse(false);
 
-    if (player != null && allow)
+    if (deny)
       event.cancel(this.blockedAccount);
 
-    if (this.auth2faWithoutPassword) {
-      if (player != null) {
-        event.setResult(TaskEvent.Result.WAIT);
-        this.plugin.getAuthServer().spawnPlayer(proxyPlayer, new PreLoginLimboSessionHandler(this, event, player));
-      }
-    }
+    event.setResult(TaskEvent.Result.WAIT);
+    this.plugin.getAuthServer().spawnPlayer(proxyPlayer, new PreLoginLimboSessionHandler(this, event, player));
   }
 
   @Subscribe
   public void onAuthCompleted(PostAuthorizationEvent event) {
     com.velocitypowered.api.proxy.Player proxyPlayer = event.getPlayer().getProxyPlayer();
-    if (!this.auth2faWithoutPassword) {
-      Player player = this.queryPlayer(proxyPlayer);
 
-      if (player != null) {
-        event.setResult(TaskEvent.Result.WAIT);
-        this.authMainHook(player, event.getPlayer(), event);
-      }
-    }
+    Optional<Player> optionalPlayer = api.queryPlayerByNickName(proxyPlayer.getUsername());
+    if(optionalPlayer.isEmpty())
+      return;
 
-  }
+    Player player = optionalPlayer.get();
+    event.setResult(TaskEvent.Result.WAIT);
 
-  public void authMainHook(Player player, LimboPlayer limboPlayer, TaskEvent event) {
-    com.velocitypowered.api.proxy.Player proxyPlayer = limboPlayer.getProxyPlayer();
-    this.sessions.put(player.getNickname(), new AuthSession(event, limboPlayer));
+    this.sessions.put(player.getDiscordID(), new AuthSession(event, event.getPlayer()));
 
     String ip = proxyPlayer.getRemoteAddress().getAddress().getHostAddress();
-    this.socialManager.broadcastMessage(player, Placeholders.replace(Settings.IMP.MAIN.STRINGS.NOTIFY_ASK_VALIDATE,
-            ip, Optional.ofNullable(this.geoIp).map(nonNullGeo -> nonNullGeo.getLocation(ip)).orElse("")),
-        this.yesNoButtons, DiscordController.ButtonVisibility.PREFER_INLINE);
+    discordController.broadcastMessage(player, Placeholders.replace(Settings.IMP.MAIN.STRINGS.NOTIFY_ASK_VALIDATE,
+                    ip, Optional.ofNullable(this.geoIp).map(nonNullGeo -> nonNullGeo.getLocation(ip)).orElse("")),
+            DiscordKeyboards.yes_no_keyboard.build(player.getDiscordID()), ButtonVisibility.PREFER_INLINE);
 
     proxyPlayer.sendMessage(this.askedValidate);
   }
 
   @Subscribe
-  public void onRegisterCompleted(PostRegisterEvent event) {
-
-  }
-
-  @Subscribe
   public void onGameProfile(PlayerChooseInitialServerEvent event) {
-    Player player = this.queryPlayer(event.getPlayer());
-    if (player != null && Settings.IMP.MAIN.ENABLE_NOTIFY && player.isNotifyEnabled()) {
+    Optional<Player> optionalPlayer = api.queryPlayerByNickName(event.getPlayer().getUsername());
+    if(optionalPlayer.isEmpty())
+      return;
+
+    Player player = optionalPlayer.get();
+    if (player.isNotifyEnabled()) {
       String ip = event.getPlayer().getRemoteAddress().getAddress().getHostAddress();
-      this.socialManager.broadcastMessage(player, Placeholders.replace(Settings.IMP.MAIN.STRINGS.NOTIFY_JOIN,
+      discordController.broadcastMessage(player, Placeholders.replace(Settings.IMP.MAIN.STRINGS.NOTIFY_JOIN,
           ip,
-          Optional.ofNullable(this.geoIp).map(nonNullGeo -> nonNullGeo.getLocation(ip)).orElse("")), this.keyboard);
+          Optional.ofNullable(this.geoIp).map(nonNullGeo -> nonNullGeo.getLocation(ip)).orElse("")),
+              DiscordKeyboards.infoKeyboard.build(player.getDiscordID()));
     }
   }
 
   @Subscribe
   public void onPlayerLeave(DisconnectEvent event) {
-    if (event.getPlayer().getCurrentServer().isEmpty()) {
+    if (event.getPlayer().getCurrentServer().isEmpty())
       return;
-    }
 
-    Player player = this.queryPlayer(event.getPlayer());
-    if (player != null) {
-      if (Settings.IMP.MAIN.ENABLE_NOTIFY && player.isNotifyEnabled()) {
-        this.socialManager.broadcastMessage(player, Settings.IMP.MAIN.STRINGS.NOTIFY_LEAVE, this.keyboard);
-      }
+    Optional<Player> optionalPlayer = api.queryPlayerByNickName(event.getPlayer().getUsername());
+    if(optionalPlayer.isEmpty())
+      return;
+    Player player = optionalPlayer.get();
+    if (player.isNotifyEnabled())
+      discordController.broadcastMessage(
+              player,
+              Settings.IMP.MAIN.STRINGS.NOTIFY_LEAVE,
+              DiscordKeyboards.infoKeyboard.build(player.getDiscordID())
+      );
 
-      this.sessions.remove(player.getNickname());
-    }
+    this.sessions.remove(player.getDiscordID());
   }
 
-  @Subscribe
-  public void onUnregister(AuthUnregisterEvent event) {
-    this.addon.unregisterPlayer(event.getNickname());
-  }
+  public void authMainHook(Player player, LimboPlayer limboPlayer, TaskEvent event) {
+    com.velocitypowered.api.proxy.Player proxyPlayer = limboPlayer.getProxyPlayer();
+    this.sessions.put(player.getDiscordID(), new AuthSession(event, limboPlayer));
 
-  private boolean playerExists(com.velocitypowered.api.proxy.Player player) {
-    try {
-      return this.dataManager.players().idExists(player.getUsername().toLowerCase(Locale.ROOT));
-    } catch (SQLException e) {
-      throw new IllegalStateException(e);
-    }
-  }
+    String ip = proxyPlayer.getRemoteAddress().getAddress().getHostAddress();
+    discordController.broadcastMessage(
+            player,
+            Placeholders.replace(
+                    Settings.IMP.MAIN.STRINGS.NOTIFY_ASK_VALIDATE,
+                    ip,
+                    Optional.ofNullable(this.geoIp).map(nonNullGeo -> nonNullGeo.getLocation(ip)).orElse("")
+            ),
+            DiscordKeyboards.yes_no_keyboard.build(player.getDiscordID()),
+            ButtonVisibility.PREFER_INLINE
+    );
 
-  private Player queryPlayer(com.velocitypowered.api.proxy.Player player) {
-    try {
-      List<Player> players = this.dataManager.players().queryForEq(Player.NICKNAME_FIELD, player.getUsername());
-      if(players.size() > 0)
-        return players.get(0);
-      else player.disconnect(unregistered);
-      return null;
-    } catch (SQLException e) {
-      throw new IllegalStateException(e);
-    }
-  }
-
-  private void addPlayerActivity(Player player, String action){
-
-  }
-
-  private Player queryPlayer(Long id) {
-    try {
-      List<Player> l = this.dataManager.players().queryForEq(Player.DISCORD_DB_FIELD, id);
-
-      if (l.size() == 0) {
-        return null;
-      }
-
-      return l.get(0);
-    } catch (SQLException e) {
-      throw new IllegalStateException(e);
-    }
-  }
-
-  private static final class AuthSession {
-    private final TaskEvent event;
-    private final LimboPlayer player;
-
-    private AuthSession(TaskEvent event, LimboPlayer player) {
-      this.event = event;
-      this.player = player;
-    }
-
-    public TaskEvent getEvent() {
-      return this.event;
-    }
-
-    public LimboPlayer getPlayer() {
-      return this.player;
-    }
+    proxyPlayer.sendMessage(this.askedValidate);
   }
 }

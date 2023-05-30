@@ -45,6 +45,7 @@ public class PreLoginLimboSessionHandler implements LimboSessionHandler {
       limboPlayer.enableFalling();
     }
 
+
     this.listener.authMainHook(this.player, limboPlayer, this.event);
   }
 }

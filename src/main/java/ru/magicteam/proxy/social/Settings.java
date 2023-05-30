@@ -21,6 +21,7 @@ import java.util.List;
 import net.dv8tion.jda.api.entities.Activity;
 import net.elytrium.commons.config.YamlConfig;
 import net.elytrium.commons.kyori.serialization.Serializers;
+import net.elytrium.limboauth.socialaddon.BuildConstants;
 
 public class Settings extends YamlConfig {
 
@@ -46,8 +47,6 @@ public class Settings extends YamlConfig {
 
   public static class MAIN {
     public List<String> FORCE_KEYBOARD_CMDS = List.of("!keyboard");
-
-    public boolean ENABLE_NOTIFY = true;
 
     public boolean DEFAULT_NOTIFY_ENABLED = true;
 
@@ -197,7 +196,6 @@ public class Settings extends YamlConfig {
 
       public String KICK_BTN = "Kick";
       public String TOGGLE_NOTIFICATION_BTN = "Toggle notifications";
-      public String KEYBOARD_RESTORED = "Keyboard was restored";
       public String SOCIAL_EXCEPTION_CAUGHT = "An exception occurred while processing your request";
     }
   }

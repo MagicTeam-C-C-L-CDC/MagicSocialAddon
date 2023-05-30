@@ -17,32 +17,31 @@
 
 package ru.magicteam.proxy.social.controller.discord;
 
-import java.util.*;
-import java.util.function.Consumer;
-import java.util.stream.Collectors;
-
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.Activity;
 import net.dv8tion.jda.api.entities.Role;
 import net.dv8tion.jda.api.entities.User;
-import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
+import net.dv8tion.jda.api.events.Event;
 import net.dv8tion.jda.api.interactions.components.ActionRow;
 import net.dv8tion.jda.api.interactions.components.buttons.Button;
 import net.dv8tion.jda.api.interactions.components.buttons.ButtonStyle;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.cache.CacheFlag;
-import net.elytrium.limboapi.api.player.LimboPlayer;
-import net.elytrium.limboauth.event.TaskEvent;
 import ru.magicteam.proxy.social.Settings;
 import ru.magicteam.proxy.social.controller.Controller;
 import ru.magicteam.proxy.social.controller.discord.register.DiscordCommands;
 import ru.magicteam.proxy.social.controller.discord.ui.button.ButtonItem;
 import ru.magicteam.proxy.social.controller.discord.ui.button.ButtonVisibility;
-import ru.magicteam.proxy.social.controller.proxy.ProxyController;
 import ru.magicteam.proxy.social.model.ModelAPI;
 import ru.magicteam.proxy.social.model.Player;
-import ru.magicteam.proxy.social.controller.proxy.social.SocialInitializationException;
+
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 public class DiscordController extends Controller {
 
@@ -50,46 +49,20 @@ public class DiscordController extends Controller {
 
   private List<Role> requiredRoles = new LinkedList<>();
 
-  public static DiscordBuilder<HashMap<DType, Consumer<ButtonInteractionEvent>>> builder = () -> {
-    HashMap<DType, Consumer<ButtonInteractionEvent>> map = new HashMap<>();
-
-    map.put(DType.BUILD, e -> {
-
-    });
-
-    return map;
-  };
-
-   this.socialManager.addButtonEvent(ASK_NO_BTN, (id) -> {
-    Player player = this.queryPlayer(id);
-
-    if (player != null && this.sessions.containsKey(player.getNickname())) {
-      this.sessions.get(player.getNickname()).getEvent().completeAndCancel(this.askedKick);
-      this.socialManager.broadcastMessage(player, Settings.IMP.MAIN.STRINGS.NOTIFY_WARN, this.keyboard);
-    }
-  });
-
-    this.socialManager.addButtonEvent(ASK_YES_BTN, (id) -> {
-    Player player = this.queryPlayer(id);
-
-    if (player != null && this.sessions.containsKey(player.getNickname())) {
-      ProxyController.AuthSession authSession = this.sessions.get(player.getNickname());
-      if (this.auth2faWithoutPassword) {
-        LimboPlayer limboPlayer = authSession.getPlayer();
-        limboPlayer.disconnect();
-        com.velocitypowered.api.proxy.Player proxyPlayer = limboPlayer.getProxyPlayer();
-        this.plugin.cacheAuthUser(proxyPlayer);
-        this.plugin.updateLoginData(proxyPlayer);
-      } else {
-        authSession.getEvent().complete(TaskEvent.Result.NORMAL);
-      }
-
-      this.socialManager.broadcastMessage(player, Settings.IMP.MAIN.STRINGS.NOTIFY_THANKS, this.keyboard);
-    }
-  });
+  private final HashMap<DType, List<Consumer<DiscordEvent>>> events = new HashMap<>();
 
   public DiscordController(ModelAPI api) {
     super(api);
+  }
+
+  public void subscribe(DType type, Consumer<DiscordEvent> consumer){
+    if(events.containsKey(type))
+      events.get(type).add(consumer);
+    else events.put(type, List.of(consumer));
+  }
+
+  public void callEvent(Long id, DType type, DiscordEvent.EventType eventType, Event event){
+    events.get(type).forEach((e) -> new DiscordEvent(id, eventType, event));
   }
 
   public void start() throws InterruptedException {
@@ -115,8 +88,8 @@ public class DiscordController extends Controller {
         requiredRoles.add(roleById);
     }
 
-    jda.updateCommands().addCommands(DiscordCommands.commandBuilder.build()).queue();
-    jda.addEventListener(new DiscordListener(api));
+    jda.updateCommands().addCommands(DiscordCommands.commands).queue();
+    jda.addEventListener(new DiscordListener(api, this));
   }
 
   public void stop() {
@@ -124,15 +97,6 @@ public class DiscordController extends Controller {
       this.jda.shutdown();
     }
   }
-/*
-  protected void proceedMessage(Long id, String message) {
-    this.onMessageReceived.accept(id, message);
-  }
-
-  protected void proceedButton(Long id, String message) {
-    this.onButtonClicked.accept(id, message);
-  }
- */
 
   public void sendMessage(Long id, String content, List<List<ButtonItem>> buttons, ButtonVisibility visibility) {
     User user = this.jda.retrieveUserById(id).complete();

@@ -23,13 +23,14 @@ import com.velocitypowered.api.permission.Tristate;
 import java.util.List;
 import ru.magicteam.proxy.social.Addon;
 import ru.magicteam.proxy.social.Settings;
+import ru.magicteam.proxy.social.controller.proxy.ProxyController;
 
 public class ForceSocialUnlinkCommand implements SimpleCommand {
 
-  private final Addon addon;
+  private final ProxyController proxyController;
 
-  public ForceSocialUnlinkCommand(Addon addon) {
-    this.addon = addon;
+  public ForceSocialUnlinkCommand(ProxyController proxyController) {
+    this.proxyController = proxyController;
   }
 
   @Override
@@ -41,7 +42,7 @@ public class ForceSocialUnlinkCommand implements SimpleCommand {
       source.sendMessage(Addon.getSerializer()
           .deserialize(Settings.IMP.MAIN.STRINGS.FORCE_UNLINK_CMD_USAGE));
     } else {
-      this.addon.unregisterPlayer(args[0]);
+      //proxyController.unregisterPlayer(args[0]);
     }
   }
 

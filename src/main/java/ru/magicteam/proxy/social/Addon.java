@@ -18,45 +18,39 @@
 package ru.magicteam.proxy.social;
 
 import com.google.inject.Inject;
-import com.velocitypowered.api.command.CommandManager;
 import com.velocitypowered.api.event.PostOrder;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
-import com.velocitypowered.api.permission.Tristate;
 import com.velocitypowered.api.plugin.Dependency;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.PluginContainer;
 import com.velocitypowered.api.plugin.PluginDescription;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
-import com.velocitypowered.api.proxy.ServerConnection;
-import com.velocitypowered.api.scheduler.ScheduledTask;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
-import net.elytrium.commons.config.Placeholders;
 import net.elytrium.commons.kyori.serialization.Serializer;
 import net.elytrium.commons.kyori.serialization.Serializers;
 import net.elytrium.commons.utils.updates.UpdatesChecker;
 import net.elytrium.limboauth.LimboAuth;
-import ru.magicteam.proxy.social.controller.proxy.ProxyController;
-import ru.magicteam.proxy.social.controller.proxy.social.ReloadListener;
-import ru.magicteam.proxy.social.controller.discord.DiscordController;
-import ru.magicteam.proxy.social.controller.proxy.utils.GeoIp;
+import net.elytrium.limboauth.event.AuthPluginReloadEvent;
+import net.elytrium.limboauth.socialaddon.BuildConstants;
 import net.elytrium.limboauth.thirdparty.com.j256.ormlite.dao.DaoManager;
-import net.elytrium.limboauth.thirdparty.com.j256.ormlite.stmt.UpdateBuilder;
 import net.elytrium.limboauth.thirdparty.com.j256.ormlite.support.ConnectionSource;
 import net.elytrium.limboauth.thirdparty.com.j256.ormlite.table.TableUtils;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.ComponentSerializer;
 import org.bstats.velocity.Metrics;
 import org.slf4j.Logger;
+import ru.magicteam.proxy.social.controller.discord.DiscordController;
+import ru.magicteam.proxy.social.controller.proxy.ProxyController;
+import ru.magicteam.proxy.social.controller.proxy.utils.GeoIp;
 import ru.magicteam.proxy.social.model.*;
 
 import java.io.File;
 import java.nio.file.Path;
 import java.sql.SQLException;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
+import java.util.Objects;
+import java.util.Optional;
 
 @Plugin(
     id = "limboauth-social-addon",
@@ -83,14 +77,10 @@ public class Addon {
   private final Path dataDirectory;
   private final LimboAuth plugin;
 
-  private final Map<String, TempAccount> requestedReverseMap;
-  private final Map<Long, CachedRegisteredUser> cachedAccountRegistrations = new ConcurrentHashMap<>();
-
   private DataModel dataManager;
   private DiscordController discordController;
 
   private GeoIp geoIp;
-  private ScheduledTask purgeCacheTask;
 
   static {
     Objects.requireNonNull(org.apache.commons.logging.impl.LogFactoryImpl.class);
@@ -115,12 +105,11 @@ public class Addon {
     }
 
     this.plugin = (LimboAuth) container.flatMap(PluginContainer::getInstance).orElseThrow();
-    this.requestedReverseMap = new ConcurrentHashMap<>();
   }
 
   @Subscribe(order = PostOrder.NORMAL)
   public void onProxyInitialization(ProxyInitializeEvent event) throws SQLException {
-    this.onReload();
+    this.onAuthReload(null);
     this.metricsFactory.make(this, 14770);
     if (!UpdatesChecker.checkVersionByURL("https://raw.githubusercontent.com/Elytrium/LimboAuth-SocialAddon/master/VERSION", Settings.IMP.VERSION)) {
       this.logger.error("****************************************");
@@ -138,122 +127,22 @@ public class Addon {
     if (serializer == null) {
       this.logger.warn("The specified serializer could not be founded, using default. (LEGACY_AMPERSAND)");
       setSerializer(new Serializer(Objects.requireNonNull(Serializers.LEGACY_AMPERSAND.getSerializer())));
-    } else {
+    } else
       setSerializer(new Serializer(serializer));
-    }
 
     this.geoIp = Settings.IMP.MAIN.GEOIP.ENABLED ? new GeoIp(this.dataDirectory) : null;
 
-
-    this.socialManager = new SocialManager();
-    this.socialManager.start();
-
-    this.keyboard = List.of(
-        List.of(
-            new DiscordController.ButtonItem(INFO_BTN, Settings.IMP.MAIN.STRINGS.INFO_BTN, DiscordController.ButtonItem.Color.PRIMARY)
-        ),
-        List.of(
-            new DiscordController.ButtonItem(NOTIFY_BTN, Settings.IMP.MAIN.STRINGS.TOGGLE_NOTIFICATION_BTN, DiscordController.ButtonItem.Color.SECONDARY)
-        ),
-        List.of(
-            new DiscordController.ButtonItem(KICK_BTN, Settings.IMP.MAIN.STRINGS.KICK_BTN, DiscordController.ButtonItem.Color.RED)
-        )
-    );
-
+    this.discordController = new DiscordController(dataManager);
+    try {
+      this.discordController.start();
+    } catch (InterruptedException e) {
+      e.printStackTrace();
+    }
     //this.socialManager.registerKeyboard(this.keyboard);
-
-    this.socialManager.addButtonEvent(INFO_BTN, (id) -> {
-      List<Player> playerList = this.dataManager.players().queryForEq(Player.DISCORD_DB_FIELD, id);
-
-      if (playerList.size() == 0) {
-        return;
-      }
-
-      Player player = playerList.get(0);
-      Optional<com.velocitypowered.api.proxy.Player> proxyPlayer = this.server.getPlayer(player.getNickname());
-      String server;
-      String ip;
-      String location;
-
-      if (proxyPlayer.isPresent()) {
-        com.velocitypowered.api.proxy.Player player1 = proxyPlayer.get();
-        Optional<ServerConnection> connection = player1.getCurrentServer();
-
-        if (connection.isPresent()) {
-          server = connection.get().getServerInfo().getName();
-        } else {
-          server = Settings.IMP.MAIN.STRINGS.STATUS_OFFLINE;
-        }
-
-        ip = player1.getRemoteAddress().getAddress().getHostAddress();
-        location = Optional.ofNullable(this.geoIp).map(nonNullGeo -> nonNullGeo.getLocation(ip)).orElse("");
-      } else {
-        server = Settings.IMP.MAIN.STRINGS.STATUS_OFFLINE;
-        ip = Settings.IMP.MAIN.STRINGS.STATUS_OFFLINE;
-        location = "";
-      }
-
-      this.socialManager.broadcastMessage(player, Placeholders.replace(Settings.IMP.MAIN.STRINGS.INFO_MSG,
-              player.getNickname(),
-              server,
-              ip,
-              location,
-              player.isNotifyEnabled() ? Settings.IMP.MAIN.STRINGS.NOTIFY_ENABLED : Settings.IMP.MAIN.STRINGS.NOTIFY_DISABLED),
-          this.keyboard
-      );
-    });
-
-    this.socialManager.addButtonEvent(NOTIFY_BTN, (id) -> {
-      List<Player> playerList = this.dataManager.players().queryForEq(Player.DISCORD_DB_FIELD, id);
-
-      if (playerList.size() == 0) {
-        return;
-      }
-
-      Player player = playerList.get(0);
-
-      if (player.isNotifyEnabled()) {
-        player.setNotifyEnabled(false);
-        this.socialManager.broadcastMessage(player,
-            Placeholders.replace(Settings.IMP.MAIN.STRINGS.NOTIFY_DISABLE_SUCCESS, player.getNickname()), this.keyboard
-        );
-      } else {
-        player.setNotifyEnabled(true);
-        this.socialManager.broadcastMessage(player,
-            Placeholders.replace(Settings.IMP.MAIN.STRINGS.NOTIFY_ENABLE_SUCCESS, player.getNickname()), this.keyboard
-        );
-      }
-
-      this.dataManager.players().update(player);
-    });
-
-    this.socialManager.addButtonEvent(KICK_BTN, (id) -> {
-      List<Player> playerList = this.dataManager.players().queryForEq(Player.DISCORD_DB_FIELD, id);
-
-      if (playerList.size() == 0) {
-        return;
-      }
-
-      Player player = playerList.get(0);
-      Optional<com.velocitypowered.api.proxy.Player> proxyPlayer = this.server.getPlayer(player.getNickname());
-      this.plugin.removePlayerFromCache(player.getNickname());
-
-      if (proxyPlayer.isPresent()) {
-        proxyPlayer.get().disconnect(Addon.getSerializer().deserialize(Settings.IMP.MAIN.STRINGS.KICK_GAME_MESSAGE));
-        this.socialManager.broadcastMessage(player,
-            Placeholders.replace(Settings.IMP.MAIN.STRINGS.KICK_SUCCESS, player.getNickname()), this.keyboard
-        );
-      } else {
-        this.socialManager.broadcastMessage(player,
-            Settings.IMP.MAIN.STRINGS.KICK_IS_OFFLINE.replace("{NICKNAME}", player.getNickname()), this.keyboard
-        );
-      }
-
-      this.dataManager.players().update(player);
-    });
   }
 
-  public void onReload() throws SQLException {
+  @Subscribe
+  public void onAuthReload(AuthPluginReloadEvent event) throws SQLException {
     this.load();
     this.server.getEventManager().unregisterListeners(this);
 
@@ -271,47 +160,16 @@ public class Addon {
 
     //this.plugin.migrateDb(this.dataManager.players());
 
-    this.server.getEventManager().register(this, new ProxyController(this, this.plugin, this.dataManager, this.socialManager,
-        this.keyboard, this.geoIp
+    this.server.getEventManager().register(this, new ProxyController(
+            this.plugin,
+            this.dataManager,
+            this.discordController,
+            this.geoIp
     ));
-    this.server.getEventManager().register(this, new ReloadListener(this));
-
-    if (this.purgeCacheTask != null) {
-      this.purgeCacheTask.cancel();
-    }
-
-    this.purgeCacheTask = this.server.getScheduler()
-        .buildTask(this, () -> this.checkCache(this.cachedAccountRegistrations, Settings.IMP.MAIN.PURGE_REGISTRATION_CACHE_MILLIS))
-        .delay(net.elytrium.limboauth.Settings.IMP.MAIN.PURGE_CACHE_MILLIS, TimeUnit.MILLISECONDS)
-        .repeat(net.elytrium.limboauth.Settings.IMP.MAIN.PURGE_CACHE_MILLIS, TimeUnit.MILLISECONDS)
-        .schedule();
-
-    CommandManager commandManager = this.server.getCommandManager();
+    this.server.getEventManager().register(this, this);
   }
 
-  private void checkCache(Map<?, ? extends CachedUser> userMap, long time) {
-    userMap.entrySet().stream()
-        .filter(userEntry -> userEntry.getValue().getCheckTime() + time <= System.currentTimeMillis())
-        .map(Map.Entry::getKey)
-        .forEach(userMap::remove);
-  }
-
-  public void unregisterPlayer(String nickname) {
-    try {
-      List<Player> playersList = this.dataManager.players().queryForEq(Player.NICKNAME_FIELD, nickname);
-      Player player = null;
-      if(playersList.size() > 0)
-        player = playersList.get(0);
-
-      if (player != null) {
-        this.socialManager.unregisterHook(player);
-        this.dataManager.players().delete(player);
-      }
-    } catch (SQLException e) {
-      throw new IllegalStateException(e);
-    }
-  }
-
+/*
   public void linkSocial(String lowercaseNickname, Long id) throws SQLException {
     Player player = this.dataManager.players().queryForId("" + id);
     if (player == null) {
@@ -330,72 +188,8 @@ public class Addon {
     updateBuilder.update();
   }
 
-  public Integer getCode(String nickname) {
-    return this.codeMap.get(nickname);
-  }
+ */
 
-  public TempAccount getTempAccount(String nickname) {
-    return this.requestedReverseMap.get(nickname);
-  }
-
-  public void removeCode(String nickname) {
-    this.requestedReverseMap.remove(nickname);
-    this.codeMap.remove(nickname);
-  }
-
-  public SocialManager getSocialManager() {
-    return this.socialManager;
-  }
-
-  public ProxyServer getServer() {
-    return this.server;
-  }
-
-  public List<List<DiscordController.ButtonItem>> getKeyboard() {
-    return this.keyboard;
-  }
-
-  public static class TempAccount {
-
-    private final String dbField;
-    private final long id;
-
-    public TempAccount(String dbField, long id) {
-      this.dbField = dbField;
-      this.id = id;
-    }
-
-    public String getDbField() {
-      return this.dbField;
-    }
-
-    public long getId() {
-      return this.id;
-    }
-
-  }
-
-  private static class CachedUser {
-
-    private final long checkTime = System.currentTimeMillis();
-
-    public long getCheckTime() {
-      return this.checkTime;
-    }
-  }
-
-  private static class CachedRegisteredUser extends CachedUser {
-
-    private int registrationAmount;
-
-    public int getRegistrationAmount() {
-      return this.registrationAmount;
-    }
-
-    public void incrementRegistrationAmount() {
-      this.registrationAmount++;
-    }
-  }
 
   private static void setSerializer(Serializer serializer) {
     SERIALIZER = serializer;

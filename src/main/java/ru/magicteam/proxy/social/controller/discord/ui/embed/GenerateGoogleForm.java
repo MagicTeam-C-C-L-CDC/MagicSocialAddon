@@ -2,14 +2,13 @@ package ru.magicteam.proxy.social.controller.discord.ui.embed;
 
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.entities.MessageEmbed;
-import ru.magicteam.proxy.social.controller.discord.DiscordBuilder;
 
 import java.awt.*;
 
 
-public class GenerateGoogleForm implements DiscordBuilder<MessageEmbed> {
-    @Override
-    public MessageEmbed build() {
+public abstract class GenerateGoogleForm {
+    public static MessageEmbed googleFormEmbed;
+    static {
         EmbedBuilder eb = new EmbedBuilder();
         eb.setTitle("Title", null);
         eb.setColor(Color.red);
@@ -23,6 +22,6 @@ public class GenerateGoogleForm implements DiscordBuilder<MessageEmbed> {
         eb.setImage("https://github.com/zekroTJA/DiscordBot/blob/master/.websrc/logo%20-%20title.png");
         eb.setThumbnail("https://github.com/zekroTJA/DiscordBot/blob/master/.websrc/logo%20-%20title.png");
 
-        return eb.build();
+        googleFormEmbed = eb.build();
     }
 }

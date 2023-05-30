@@ -18,20 +18,31 @@ import org.jetbrains.annotations.NotNull;
 import ru.magicteam.proxy.social.model.ModelAPI;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedList;
+import java.util.Optional;
 
 public class DiscordListener extends ListenerAdapter {
 
     private final ModelAPI api;
+    private final DiscordController discordController;
 
-    public DiscordListener(ModelAPI api){
+    public DiscordListener(ModelAPI api, DiscordController discordController){
         this.api = api;
+        this.discordController = discordController;
     }
 
     @Override
     public void onSlashCommandInteraction(@NotNull SlashCommandInteractionEvent e) {
         super.onSlashCommandInteraction(e);
-        switch (DType.fromString(e.getName())){
+        Optional<DType> optionalDType = DType.fromString(e.getName());
+        if(optionalDType.isEmpty())
+            return;
+        discordController.callEvent(e.getUser().getIdLong(), optionalDType.get(), DiscordEvent.EventType.SLASH_COMMAND, e);
+        /*
+        switch (optionalDType.get()){
+
+
             case PING -> {
                 long time = System.currentTimeMillis();
                 e.reply("Pong!").setEphemeral(true)
@@ -41,74 +52,48 @@ public class DiscordListener extends ListenerAdapter {
             case MODAL -> e.replyModal(ServerJoinRequest.build()).queue();
             case GENERATE_TYPE -> {
                 for(OptionMapping o: e.getOptions()){
-                    switch (DType.fromString(o.getName())) {
+                    Optional<DType> optionalOption = DType.fromString(o.getName());
+                    if(optionalOption.isEmpty())
+                        return;
+                    switch (optionalOption.get()) {
                         case GENERATE_GOOGLE_FORM -> e.getChannel()
                                 .sendMessageEmbeds(new GenerateGoogleForm().build())
-                                .setActionRow(Button.success(DType.CREATE_GOOGLE_FORM_BUTTON.name, "Создать ссылку на google форму"))
+                                .setActionRow(Button.success(DType.CREATE_GOOGLE_FORM_BUTTON.value, "Создать ссылку на google форму"))
                                 .queue();
                         default -> throw new IllegalStateException("Unexpected value: " + DType.fromString(o.getName()));
                     }
                 }
             }
-        }
+
+
+        } */
     }
 
     @Override
     public void onMessageReceived(@NotNull MessageReceivedEvent event) {
-        User user = event.getAuthor();
+        Optional<DType> type = DType.fromString(event.getMessage().getContentRaw());
+        if(type.isEmpty())
+            return;
 
-        this.onMessageReceived.accept(event.getAuthor().getIdLong(), event.getMessage().getContentRaw());
-
-        String buttonId = this.buttonIdMap.get(message);
-        if (buttonId != null) {
-            this.onButtonClicked(id, buttonId);
-        }
-
-        this.messageEvents.forEach(event -> {
-            try {
-                event.accept(id, message);
-            } catch (Exception e) {
-                this.broadcastMessage(id, Settings.IMP.MAIN.STRINGS.SOCIAL_EXCEPTION_CAUGHT);
-                if (Settings.IMP.MAIN.DEBUG) {
-                    e.printStackTrace(); // printStackTrace is necessary there
-                }
-            }
-        });
+        discordController.callEvent(event.getAuthor().getIdLong(), type.get(), DiscordEvent.EventType.MESSAGE,  event);
     }
 
     @Override
     public void onButtonInteraction(@NotNull ButtonInteractionEvent event) {
-        event.deferEdit().queue();
-        this.onButtonClicked.accept(event.getUser().getIdLong(), event.getButton().getId());
+        ComponentInfo info = parse(event.getComponentId());
+        discordController.callEvent(info.id, info.type, DiscordEvent.EventType.BUTTON, event);
     }
 
-    private void onButtonClicked(Long id, String buttonId) {
-        SocialButtonListenerAdapter buttonListenerAdapter = this.buttonEvents.get(buttonId);
-        if (buttonListenerAdapter != null) {
-            try {
-                buttonListenerAdapter.accept(id);
-            } catch (Exception e) {
-                this.broadcastMessage(id, Settings.IMP.MAIN.STRINGS.SOCIAL_EXCEPTION_CAUGHT);
-                if (Settings.IMP.MAIN.DEBUG) {
-                    e.printStackTrace(); // printStackTrace is necessary there
-                }
-            }
+    private ComponentInfo parse(String name) throws IllegalArgumentException{
+        String[] data = name.split("_");
+        if(data.length > 1){
+            Optional<DType> optionalDType = DType.fromString(data[0]);
+            if(optionalDType.isEmpty())
+                throw new IllegalArgumentException();
+            return new ComponentInfo(optionalDType.get(), Long.parseLong(data[1]));
         }
+        else throw new IllegalArgumentException();
     }
 
-    public Collection<SlashCommandData> build() {
-        LinkedList<SlashCommandData> commands = new LinkedList<>();
-        commands.add(Commands.slash(DType.MODAL.name, "Get invite modal"));
-        commands.add(Commands.slash(DType.PING.name, "Just ping"));
-
-        SlashCommandData build = Commands.slash(DType.BUILD.name, "Build some functional elements");
-        OptionData buildOptions = new OptionData(OptionType.STRING, DType.GENERATE_TYPE.name, "element name");
-        buildOptions.addChoice(DType.GENERATE_GOOGLE_FORM.name, DType.GENERATE_GOOGLE_FORM.name);
-        build.addOptions(buildOptions);
-
-        commands.add(build);
-
-        return commands;
-    }
-
+    record ComponentInfo(DType type, Long id){}
 }
