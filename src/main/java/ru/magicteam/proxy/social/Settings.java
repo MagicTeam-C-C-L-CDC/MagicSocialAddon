@@ -68,6 +68,17 @@ public class Settings extends YamlConfig {
     @Comment("How many accounts can register the player per time (per purge-registration-cache-millis)")
     public int MAX_REGISTRATION_COUNT_PER_TIME = 5;
 
+    public String GOOGLE_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSeMf-HqZlu0ie91GyLh-hGtXpqT8SryR4byI6q5slGmMwUCiw/viewform?usp=sf_link";
+
+    @Create
+    public MAIN.GOOGLE_FORM GOOGLE_FORM;
+
+    public static class GOOGLE_FORM {
+      public String IP;
+      public int PORT;
+      public String API_PATH;
+    }
+
     @Create
     public MAIN.DISCORD DISCORD;
 
@@ -95,6 +106,7 @@ public class Settings extends YamlConfig {
       @Comment("Activity URL. Supported only with activity-type: STREAMING")
       public String ACTIVITY_URL = null;
       public String ACTIVITY_NAME = "LimboAuth Social Addon";
+      public String GOOGLE_FORM_USER_COMMAND_DESCRIPTION = "Who will pass google form?";
 
       @Comment({
           "Which role ids a player must have on the Discord server to use the bot",

@@ -24,11 +24,9 @@ import java.util.Optional;
 
 public class DiscordListener extends ListenerAdapter {
 
-    private final ModelAPI api;
     private final DiscordController discordController;
 
-    public DiscordListener(ModelAPI api, DiscordController discordController){
-        this.api = api;
+    public DiscordListener(DiscordController discordController){
         this.discordController = discordController;
     }
 

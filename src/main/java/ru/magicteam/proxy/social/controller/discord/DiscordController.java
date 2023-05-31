@@ -89,7 +89,7 @@ public class DiscordController extends Controller {
     }
 
     jda.updateCommands().addCommands(DiscordCommands.commands).queue();
-    jda.addEventListener(new DiscordListener(api, this));
+    jda.addEventListener(new DiscordListener(this));
   }
 
   public void stop() {
@@ -106,26 +106,13 @@ public class DiscordController extends Controller {
 
     List<ActionRow> actionRowList = buttons.stream().map(row ->
         ActionRow.of(row.stream().map(e -> {
-          ButtonStyle style;
-
-          switch (e.color()) {
-            case RED:
-              style = ButtonStyle.DANGER;
-              break;
-            case GREEN:
-              style = ButtonStyle.SUCCESS;
-              break;
-            case LINK:
-              style = ButtonStyle.LINK;
-              break;
-            case PRIMARY:
-              style = ButtonStyle.PRIMARY;
-              break;
-            case SECONDARY:
-            default:
-              style = ButtonStyle.SECONDARY;
-              break;
-          }
+          ButtonStyle style = switch (e.color()) {
+            case RED -> ButtonStyle.DANGER;
+            case GREEN -> ButtonStyle.SUCCESS;
+            case LINK -> ButtonStyle.LINK;
+            case PRIMARY -> ButtonStyle.PRIMARY;
+            case SECONDARY, default -> ButtonStyle.SECONDARY;
+          };
 
           return Button.of(style, e.id(), e.value());
         }).collect(Collectors.toList()))

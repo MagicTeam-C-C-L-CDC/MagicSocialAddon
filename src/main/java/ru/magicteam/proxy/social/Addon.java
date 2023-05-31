@@ -42,6 +42,7 @@ import net.kyori.adventure.text.serializer.ComponentSerializer;
 import org.bstats.velocity.Metrics;
 import org.slf4j.Logger;
 import ru.magicteam.proxy.social.controller.discord.DiscordController;
+import ru.magicteam.proxy.social.controller.google.GoogleFormController;
 import ru.magicteam.proxy.social.controller.proxy.ProxyController;
 import ru.magicteam.proxy.social.controller.proxy.utils.GeoIp;
 import ru.magicteam.proxy.social.model.*;
@@ -79,6 +80,7 @@ public class Addon {
 
   private DataModel dataManager;
   private DiscordController discordController;
+  private GoogleFormController googleFormController;
 
   private GeoIp geoIp;
 
@@ -138,7 +140,9 @@ public class Addon {
     } catch (InterruptedException e) {
       e.printStackTrace();
     }
-    //this.socialManager.registerKeyboard(this.keyboard);
+
+    this.googleFormController = new GoogleFormController(dataManager, discordController);
+    this.googleFormController.start();
   }
 
   @Subscribe
