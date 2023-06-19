@@ -1,6 +1,6 @@
 package ru.magicteam.proxy.social.controller.discord;
 
-public enum DiscrodEventType {
+public enum DiscordEventType {
     BUTTON,
     COMMAND
 }

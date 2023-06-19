@@ -1,24 +1,26 @@
 package ru.magicteam.proxy.social.model;
 
-import com.velocitypowered.api.permission.Tristate;
-import net.elytrium.commons.config.Placeholders;
-import net.elytrium.limboauth.model.RegisteredPlayer;
-import ru.magicteam.proxy.social.Addon;
 import ru.magicteam.proxy.social.Settings;
 import net.elytrium.limboauth.thirdparty.com.j256.ormlite.dao.Dao;
-import net.elytrium.limboauth.thirdparty.com.j256.ormlite.stmt.UpdateBuilder;
 
+import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.SQLException;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 public record DataModel(
-                        Dao<Player, String> players,
+                        Dao<Player, Long> players,
                         Dao<Activity, Long> activity,
                         Dao<Ban, Long> ban,
-                        Dao<History, Long> history) implements ModelAPI {
+                        Dao<History, Long> history,
+                        Dao<GoogleFormSession, String> googleFormSessions) implements ModelAPI {
 /*
     public void linkSocial(String lowercaseNickname, Long id) throws SQLException {
         Player player = players().queryForId("" + id);
@@ -116,44 +118,37 @@ public record DataModel(
                 "history=" + history + ']';
     }
 
-
     @Override
     public Optional<Player> queryPlayerByID(Long id) {
-        Player player = null;
-
         try {
-            player = players.queryForId(id.toString());
+            Player player = players.queryForId(id);
+            return Optional.ofNullable(player);
         } catch (SQLException e) {
             e.printStackTrace();
+            throw new RuntimeException(e);
         }
-
-        return Optional.ofNullable(player);
     }
 
     @Override
     public Optional<Player> queryPlayerByNickName(String id) {
-        List<Player> playerList = null;
-
         try {
-            playerList = players.queryForEq(Player.NICKNAME_FIELD, id);
+            List<Player> playerList = players.queryForEq(Player.NICKNAME_FIELD, id);
+            return playerList.stream().findFirst();
         } catch (SQLException e) {
             e.printStackTrace();
+            throw new RuntimeException(e);
         }
-
-        return playerList.stream().findFirst();
     }
 
     @Override
     public Collection<Ban> queryBan(Long id) {
-        List<Ban> bans = null;
-
         try {
-            bans = ban.queryForEq(Ban.DISCORD_DB_FIELD, id);
+            List<Ban> bans = ban.queryForEq(Ban.DISCORD_DB_FIELD, id);
+            return bans;
         } catch (SQLException e) {
             e.printStackTrace();
+            throw new RuntimeException(e);
         }
-
-        return bans;
     }
 
     @Override
@@ -173,4 +168,108 @@ public record DataModel(
             e.printStackTrace();
         }
     }
+
+    @Override
+    public Status createRequest(Long id, String type) throws SQLException {
+        if(history.idExists(id))
+            return ModelAPI.Status.ALREADY_EXISTS;
+        History request = new History();
+        request.setAction(type);
+        request.setDiscordID(id);
+        request.setTimestamp(LocalDateTime.now().toString());
+        request.setStatus(History.Status.AWAITING.value);
+        history.create(request);
+        return ModelAPI.Status.SUCCESS;
+    }
+
+    @Override
+    public Boolean requestExist(Long id, String type) throws SQLException {
+        return history.queryForEq(History.DISCORD_ID_FIELD, id)
+                .stream()
+                .filter(e -> e.getAction().equals(type) && e.getStatus().equals(History.Status.AWAITING))
+                .toList()
+                .size() > 0;
+    }
+
+    @Override
+    public String createGoogleFormSession(Long id) throws SQLException {
+       try {
+           MessageDigest digest = MessageDigest.getInstance("SHA-1");
+           digest.reset();
+           String saltedID = id + Settings.IMP.MAIN.GOOGLE_FORM.SALT;
+           digest.update(saltedID.getBytes(StandardCharsets.UTF_8));
+           String hash = String.format("%040x", new BigInteger(1, digest.digest()));
+           Dao.CreateOrUpdateStatus status = googleFormSessions.createOrUpdate(new GoogleFormSession(id, hash));
+           return hash;
+       } catch (NoSuchAlgorithmException e) {
+           throw new RuntimeException(e);
+       }
+    }
+
+    @Override
+    public Boolean existGoogleFormSession(String hash) throws SQLException {
+        return googleFormSessions().queryForEq(GoogleFormSession.HASH_FIELD, hash).size() > 0;
+    }
+
+    @Override
+    public GoogleFormSession getGoogleFormSesion(String hash) throws SQLException {
+        return googleFormSessions().queryForId(hash);
+    }
+
+    @Override
+    public void deleteGoogleFormSesion(Long id) throws SQLException {
+        history.deleteById(id);
+    }
+
+    @Override
+    public Status createHistory(Long id, Long moderatorId, String action, String status, String info) throws SQLException {
+        if(history.idExists(id))
+            return ModelAPI.Status.ALREADY_EXISTS;
+        History history1 = new History();
+        history1.setDiscordID(id);
+        history1.setStatus(status);
+        history1.setTimestamp(LocalDateTime.now().toString());
+        history1.setInfo(info);
+        history1.setModeratorID(moderatorId);
+        history1.setAction(action);
+        history.createOrUpdate(history1);
+        return ModelAPI.Status.SUCCESS;
+    }
+
+    @Override
+    public Collection<History> searchHistory(Long id) throws SQLException {
+       return history.queryForEq(History.DISCORD_ID_FIELD, id);
+    }
+
+    @Override
+    public Collection<History> searchHistoryByName(String name) throws SQLException {
+        Optional<Player> optional = players.queryForEq(Player.NICKNAME_FIELD, name).stream().findFirst();
+        if(optional.isEmpty())
+            throw new SQLException();
+        return history.queryForEq(History.DISCORD_ID_FIELD, optional.get().getDiscordID());
+    }
+
+    @Override
+    public Status createPlayer(Long id, String nickname) throws SQLException {
+        if(players.idExists(id))
+            return ModelAPI.Status.ALREADY_EXISTS;
+        Player player = new Player();
+        player.setDiscordID(id);
+        player.setNickname(nickname);
+        player.setNotifyEnabled(true);
+        players.create(player);
+        return ModelAPI.Status.SUCCESS;
+    }
+
+    @Override
+    public void updateHistory(Long id, History history) throws SQLException {
+        this.history.update(history);
+    }
+
+    @Override
+    public Collection<History> allHistory(Long id, Predicate<History> filter) throws SQLException {
+        return history.queryForEq(History.DISCORD_ID_FIELD, id).stream().filter(filter).toList();
+    }
+
+
 }

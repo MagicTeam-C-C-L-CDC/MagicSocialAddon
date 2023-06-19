@@ -99,6 +99,7 @@ public class Addon {
     this.metricsFactory = metricsFactory;
     this.dataDirectory = dataDirectory;
 
+
     Optional<PluginContainer> container = this.server.getPluginManager().getPlugin("limboauth");
     String version = container.map(PluginContainer::getDescription).flatMap(PluginDescription::getVersion).orElseThrow();
 
@@ -107,11 +108,11 @@ public class Addon {
     }
 
     this.plugin = (LimboAuth) container.flatMap(PluginContainer::getInstance).orElseThrow();
+
   }
 
   @Subscribe(order = PostOrder.NORMAL)
   public void onProxyInitialization(ProxyInitializeEvent event) throws SQLException {
-    this.onAuthReload(null);
     this.metricsFactory.make(this, 14770);
     if (!UpdatesChecker.checkVersionByURL("https://raw.githubusercontent.com/Elytrium/LimboAuth-SocialAddon/master/VERSION", Settings.IMP.VERSION)) {
       this.logger.error("****************************************");
@@ -133,20 +134,12 @@ public class Addon {
       setSerializer(new Serializer(serializer));
 
     this.geoIp = Settings.IMP.MAIN.GEOIP.ENABLED ? new GeoIp(this.dataDirectory) : null;
-
-    this.discordController = new DiscordController(dataManager);
-    try {
-      this.discordController.start();
-    } catch (InterruptedException e) {
-      e.printStackTrace();
-    }
-
-    this.googleFormController = new GoogleFormController(dataManager, discordController);
-    this.googleFormController.start();
   }
 
   @Subscribe
   public void onAuthReload(AuthPluginReloadEvent event) throws SQLException {
+    logger.info("Magic social addon onAuthReload");
+
     this.load();
     this.server.getEventManager().unregisterListeners(this);
 
@@ -155,14 +148,23 @@ public class Addon {
     TableUtils.createTableIfNotExists(source, Activity.class);
     TableUtils.createTableIfNotExists(source, Ban.class);
     TableUtils.createTableIfNotExists(source, History.class);
+    TableUtils.createTableIfNotExists(source, GoogleFormSession.class);
     this.dataManager = new DataModel(
             DaoManager.createDao(source, Player.class),
             DaoManager.createDao(source, Activity.class),
             DaoManager.createDao(source, Ban.class),
-            DaoManager.createDao(source, History.class)
+            DaoManager.createDao(source, History.class),
+            DaoManager.createDao(source, GoogleFormSession.class)
     );
 
     //this.plugin.migrateDb(this.dataManager.players());
+
+    this.discordController = new DiscordController(dataManager, logger);
+    try {
+      this.discordController.start();
+    } catch (InterruptedException e) {
+      e.printStackTrace();
+    }
 
     this.server.getEventManager().register(this, new ProxyController(
             this.plugin,
@@ -170,9 +172,12 @@ public class Addon {
             this.discordController,
             this.geoIp
     ));
-    this.server.getEventManager().register(this, this);
-  }
 
+    if(this.googleFormController == null) {
+      this.googleFormController = new GoogleFormController(dataManager, discordController, logger);
+      this.googleFormController.start();
+    }
+  }
 /*
   public void linkSocial(String lowercaseNickname, Long id) throws SQLException {
     Player player = this.dataManager.players().queryForId("" + id);

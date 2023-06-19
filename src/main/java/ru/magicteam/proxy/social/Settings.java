@@ -68,15 +68,45 @@ public class Settings extends YamlConfig {
     @Comment("How many accounts can register the player per time (per purge-registration-cache-millis)")
     public int MAX_REGISTRATION_COUNT_PER_TIME = 5;
 
-    public String GOOGLE_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSeMf-HqZlu0ie91GyLh-hGtXpqT8SryR4byI6q5slGmMwUCiw/viewform?usp=sf_link";
+    public long DISCORD_ADMIN_CHANNEL_ID;
+    public long DISCORD_HISTORY_CHANNEL_ID;
+
+    public String USER_ALREADY_LEAVE_SERVER = "Пользователь покинул сервер";
+    public String USER_SUCCESSFULY_ACCEPTED = "Пользователь успешно зарегистрирован";
+
+    public String USER_DENYED = "Заявка пользователя отклонена";
 
     @Create
     public MAIN.GOOGLE_FORM GOOGLE_FORM;
 
     public static class GOOGLE_FORM {
+      public String URL = "https://docs.google.com/forms/d/e/1FAIpQLSeMf-HqZlu0ie91GyLh-hGtXpqT8SryR4byI6q5slGmMwUCiw/viewform?usp=sf_link";
       public String IP;
       public int PORT;
       public String API_PATH;
+
+      public String SALT;
+
+      public String REPLY_ALREADY_CREATE_GOOGLE_FORM_SESSION;
+
+      public String EMBED_AUTHOR = "Заявка на доступ";
+      public String REQUEST_AUTHOR = "Автор анкеты";
+      public String ERROR_NO_HASH_FOR_DISCORD_ID = "Нет пары ключ-хэш для ";
+
+      public String REQUEST_ID = "ID анкеты";
+      public String ACCEPT_PLAYER_REQUEST = "Принять";
+      public String DENY_PLAYER_REQUEST = "Отклонить";
+      public String HISTORY_REQUEST_ACCEPTED = "Заявка принята";
+      public String HISTORY_REQUEST_DENYED = "Заявка отклонена";
+      public String HISTORY_REQUEST_ACCEPTED_TIME = "Время";
+      public String HISTORY_REQUEST_ACCEPTED_SEARCH_KEY = "Ключ поиска";
+      public String HISTORY_REQUEST_DENY_REASON = "Причина отказа";
+
+
+
+      public String SEPARATOR = "%";
+
+      public List<Long> ON_ACCEPT_GIVE_ROLES = List.of(1086974303330914315L);
     }
 
     @Create

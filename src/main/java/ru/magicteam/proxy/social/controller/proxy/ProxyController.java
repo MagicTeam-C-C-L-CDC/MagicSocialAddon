@@ -23,7 +23,6 @@ import com.velocitypowered.api.event.player.PlayerChooseInitialServerEvent;
 import com.velocitypowered.api.proxy.ServerConnection;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.elytrium.commons.config.Placeholders;
-import net.elytrium.limboapi.api.Limbo;
 import net.elytrium.limboapi.api.player.LimboPlayer;
 import net.elytrium.limboauth.LimboAuth;
 import net.elytrium.limboauth.event.*;
